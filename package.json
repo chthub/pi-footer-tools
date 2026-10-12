@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Lightweight per-request token speed in Pi's footer",
+  "description": "Pi footer token speed with opt-in diagnostics, account switching, context costs and Telegram",
   "keywords": [
     "pi-package"
   ],
@@ -16,7 +16,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs test/telegram-notify/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

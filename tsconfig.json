@@ -20,6 +20,7 @@
     "config-path.ts",
     "cache-diagnostics/**/*.ts",
     "context-cost/**/*.ts",
-    "account-switch/**/*.ts"
+    "account-switch/**/*.ts",
+    "telegram-notify/**/*.ts"
   ]
 }

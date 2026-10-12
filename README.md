@@ -1,6 +1,6 @@
 # Pi 底部测速
 
-自动在现有底部栏追加一段状态，不替换 footer，不影响其他扩展。
+自动在现有底部栏追加一段状态，不替换 footer，不影响其他扩展。测速始终启用；账户切换、缓存诊断、上下文费用对照和 [Telegram 通知／回复](telegram-notify/README.md) 均为可选功能。Telegram 从 `pi-telegram-notify` 合并到本仓库，默认完全关闭，后续只维护 `telegram-notify/`。
 
 ```text
 Avg 43.7 tok/s
@@ -14,7 +14,7 @@ Avg 43.7 tok/s
 - 均速不依赖请求前钩子，不计首次输出前的重试等待，但首次输出后的停顿、内部重试以及结束事件的传输延迟仍计入输出阶段。
 - **测量局限**：使用全部输出 token，但无法知道首个流式块包含多少 token，也无法观测服务商未流式公开的思考过程；尤其是短回复、批量到达或隐藏思考时，均速可能偏高，不能据此推断纯解码性能。
 - 不恢复历史测速结果；切换会话、历史树或模型时清空，避免把旧结果当成本次测量。
-- 测速只在 TUI 显示；没有额外模型请求、定时器、tokenizer 或会话写入。诊断关闭时不写日志、不订阅额外的原始流事件。每次测速流式更新只做常数时间判断，请求期间不刷新测速显示；只有请求结束、会话／模型重置和退出时更新底部。
+- 测速只在 TUI 显示；测速自身没有网络或额外模型请求、定时器、tokenizer 或会话写入。诊断关闭时不写日志、不订阅额外的原始流事件。每次测速流式更新只做常数时间判断，请求期间不刷新测速显示；只有请求结束、会话／模型重置和退出时更新底部。可选 Telegram 功能有独立开关：开启窗口通知后会访问 Telegram；另行允许收件后，远程回复可启动模型及其工具，不属于测速的零请求保证。
 
 ## 安装
 
@@ -37,6 +37,26 @@ Avg 43.7 tok/s
 3. 仓库自带的 `config.json`。
 
 个人账户名、目录和偏好请放在**仓库外**的上述个人配置文件中。文件不需要包含令牌；各账户的 OAuth 凭据仍保存在自己的 `auth.json`。建议个人配置权限为 `0600`。非法／无法读取的配置按关闭处理，不会跳过私人文件回退到另一个配置；修改后执行 `/reload`。指定的配置文件缺失时同样不会回退。
+
+## 可选 Telegram 通知／回复（默认完全关闭）
+
+无需安装第二个扩展。只在上述配置优先级选中的**完整配置文件**中加入或修改此段；已有个人配置时保留账户、诊断、费用等其他字段，不要用示例覆盖整个文件：
+
+```json
+{
+  "telegramNotify": {
+    "enabled": true
+  }
+}
+```
+
+- `enabled` 必须是 JSON 布尔值；默认 `false`，缺少配置段或非法配置也按关闭处理。**没有 `enabledByDefault` 选项。** 显式 `false` 或缺少配置时，不注册 `/notify`、Alt+N、Telegram 功能事件或 TG 状态，不读取 Telegram 凭据，不发请求、不启动收件进程。非法／无法读取的配置同样保持关闭，但会注册一个仅用于在 TUI 警告一次的 `session_start` handler。
+- `true` 只加载能力，**每个窗口仍从 OFF 开始**。执行 `/reload` 后用 **Alt+N** 或 `/notify on` 开启，`/notify off` 关闭，`/notify status` 查询；不带参数的 `/notify` 切换。运行时开关不写回配置，重载／新建／恢复／分叉会话后重新 OFF。
+- 凭据保持原位置：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 或 `<agent-dir>/telegram-notify.json`，环境变量逐字段优先；不搬入测速配置。默认只发送，`receiveMessages: true` 才允许收件，群聊还需 `allowedUserIds` 白名单。
+- **隐私与权限**：开启后，最终 assistant 回复文本会离开本机进入 Telegram；收件是可触发当前模型及工具的远程操作能力，不只是通知。Linux `flock` 收件协调仅限同用户、同主机，不能让同一个 bot 跨主机／节点安全共享。
+- **迁移必须手动完成**：先在现有外部测速配置中启用并保留其他字段，再移除旧 `pi-telegram-notify` discovery 符号链接，或在 Pi settings 中禁用旧包的扩展，然后 `/reload`。**绝不要同时加载新旧实现**（也检查显式 `-e` 等入口）。仓库更新不会自动修改个人配置、凭据或已安装链接。旧仓库保留为独立归档回滚版本，不是依赖相邻仓库的包装器。
+
+完整安全边界、凭据配置、收件及迁移步骤见 [Telegram 说明](telegram-notify/README.md)。本次合并已在 **Pi 1.1.0** 验证：Telegram Node 套件及真实 Pi PTY 集成测试使用合成模型和拦截的 Telegram 请求，不代表真实 bot 端到端验证。
 
 ## 可选账户切换（独立开关）
 
@@ -156,6 +176,26 @@ Cache read $0.8000 | Cold start $0.6250
 ## 测试
 
 `npm test` 需要 PATH 上已安装 Pi（`npm install -g @earendil-works/pi-coding-agent`），使用已安装 Pi 的加载器及 jiti 加载实际扩展，再用确定性事件及单调时钟验证统计；上下文费用对照另有纯计算（验收表、分档、可配置不分档策略、未知值）、配置解析和生命周期测试。测试不调用模型、不访问 API。账户切换测试使用临时合成凭据和已安装 Pi 的真实 ModelRuntime，覆盖认证路由、保持请求上下文／模型、并发 OAuth 刷新及正确写回、登录／登出、失败回滚、reload／关闭、非 TUI 和命令交互，不读取或改动真实账号。诊断测试只在临时目录写合成日志并清理，包含原始字段缺失／显式零、转换差异、异常前后对照、并发关联保护、默认关闭、动态订阅、权限／轮换、写失败及开启诊断时的测速回归。
+
+合并后的 `npm test` 脚本还包含 `test/telegram-notify/*.test.mjs`，不能只运行原来的顶层 glob 而漏掉 Telegram 套件。也可直接运行完整套件：
+
+```bash
+node --test test/*.test.mjs test/telegram-notify/*.test.mjs
+```
+
+Pi **1.1.0** 下，Telegram 专项 Node 测试 **44/44 通过**，既有回归测试 **96/96 通过**；生产类型检查、TUI fixture 类型检查、两套真实 Pi PTY 集成测试以及 Python Ruff／basedpyright 检查均通过。这里分别记录已完成的验证，不将其声明为完整合并套件的一次运行结果。Telegram 测试覆盖关闭／缺少配置时零注册、非法配置仅有一次 TUI 警告 handler、关闭时不读凭据／不访问网络，以及窗口初始 OFF、发送与取消、授权、路由和集成回归。
+
+可选的真实 Pi PTY 与 fixture 检查（不包含在 `npm test` 中）：
+
+```bash
+node test/telegram-notify/typecheck.mjs
+python3 test/telegram-notify/tui-smoke.py
+python3 test/telegram-notify/tui-inbound.py
+ruff check test/telegram-notify/tui-smoke.py test/telegram-notify/tui-inbound.py
+basedpyright --level error test/telegram-notify/tui-smoke.py test/telegram-notify/tui-inbound.py
+```
+
+PTY 测试需要 Linux、`pi`、`node` 和 `flock`，加载集成主入口，使用隔离临时配置、合成模型和拦截的 Telegram 请求；不调用付费模型、不发真实 Telegram 消息。验证范围不包含新集成的真实 bot 端到端测试；这些自动化测试不会修改个人凭据、符号链接或配置，手动迁移操作不属于测试范围。详细范围见 [Telegram 验证](telegram-notify/README.md#验证) 和 [测试说明](test/telegram-notify/README.md)。
 
 `npm run typecheck` 验证本扩展类型，从 `node_modules` 解析 Pi 与 Node 类型。先执行 `npm install` 安装开发依赖；也可以不下载，直接链接全局安装的 Pi：
 

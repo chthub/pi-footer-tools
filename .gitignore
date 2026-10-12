@@ -6,3 +6,7 @@ node_modules/
 config.local.json
 *.private.json
 auth.json
+telegram-notify.json
+.test-runtime/
+__pycache__/
+*.py[cod]

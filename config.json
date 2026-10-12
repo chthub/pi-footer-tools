@@ -8,5 +8,8 @@
   },
   "contextCost": {
     "enabled": false
+  },
+  "telegramNotify": {
+    "enabled": false
   }
 }
