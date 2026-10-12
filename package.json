@@ -1,0 +1,27 @@
+{
+  "name": "pi-token-speed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lightweight per-request token speed in Pi's footer",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.1.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

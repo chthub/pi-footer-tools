@@ -1,0 +1,10 @@
+{
+  "cacheDiagnostics": {
+    "enabledByDefault": true
+  },
+  "contextCost": {
+    "enabled": true,
+    "startupMode": "cache-write",
+    "startupTokens": 50000
+  }
+}
