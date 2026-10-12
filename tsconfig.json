@@ -17,7 +17,9 @@
   },
   "include": [
     "index.ts",
+    "config-path.ts",
     "cache-diagnostics/**/*.ts",
-    "context-cost/**/*.ts"
+    "context-cost/**/*.ts",
+    "account-switch/**/*.ts"
   ]
 }

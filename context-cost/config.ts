@@ -1,18 +1,19 @@
 import { closeSync, openSync, readSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { DEFAULT_CONFIG_PATH, resolveConfigPath } from "../config-path.ts";
 import { DEFAULT_STARTUP_TOKENS, type StartupMode } from "./core.ts";
 
-export const DEFAULT_CONFIG_PATH = fileURLToPath(new URL("../config.json", import.meta.url));
+export { DEFAULT_CONFIG_PATH };
 export interface ContextCostConfig {
   enabled: boolean;
   startupMode: StartupMode;
   /** Fixed background a fresh window loads; positive integer token count. */
   startupTokens: number;
+  untieredModels: string[];
   state: "loaded" | "missing" | "invalid";
 }
 
 const OFF = (state: ContextCostConfig["state"]): ContextCostConfig => ({
-  enabled: false, startupMode: "cache-write", startupTokens: DEFAULT_STARTUP_TOKENS, state,
+  enabled: false, startupMode: "cache-write", startupTokens: DEFAULT_STARTUP_TOKENS, untieredModels: [], state,
 });
 
 function section(data: object): Record<string, unknown> | undefined {
@@ -24,7 +25,7 @@ function section(data: object): Record<string, unknown> | undefined {
  * Read once per extension load (/reload re-reads). Absent section means off;
  * malformed values fail closed instead of silently switching the pricing basis.
  */
-export function loadContextCostConfig(path = DEFAULT_CONFIG_PATH): ContextCostConfig {
+export function loadContextCostConfig(path = resolveConfigPath()): ContextCostConfig {
   let text: string;
   try {
     const fd = openSync(path, "r");
@@ -48,8 +49,10 @@ export function loadContextCostConfig(path = DEFAULT_CONFIG_PATH): ContextCostCo
   if (typeof data !== "object" || data === null || Array.isArray(data)) return OFF("invalid");
   const config = section(data);
   if (config === undefined) return OFF("contextCost" in data ? "invalid" : "missing");
-  const { enabled, startupMode = "cache-write", startupTokens = DEFAULT_STARTUP_TOKENS } = config;
+  const { enabled, startupMode = "cache-write", startupTokens = DEFAULT_STARTUP_TOKENS, untieredModels = [] } = config;
   if (typeof enabled !== "boolean" || (startupMode !== "cache-write" && startupMode !== "uncached-input")) return OFF("invalid");
   if (!Number.isSafeInteger(startupTokens) || (startupTokens as number) <= 0) return OFF("invalid");
-  return { enabled, startupMode, startupTokens: startupTokens as number, state: "loaded" };
+  if (!Array.isArray(untieredModels) || untieredModels.length > 64
+    || !untieredModels.every(value => typeof value === "string" && /^[^/\s]+\/[^/\s]+$/.test(value))) return OFF("invalid");
+  return { enabled, startupMode, startupTokens: startupTokens as number, untieredModels: [...new Set(untieredModels)], state: "loaded" };
 }

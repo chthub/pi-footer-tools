@@ -1,12 +1,13 @@
 /**
  * Per-model-request speed in Pi's existing footer.
- * Speed stays allocation-light; optional cache diagnostics and context-cost comparison
- * are switched in config.json.
+ * Speed stays allocation-light; optional diagnostics, context-cost comparison and
+ * live Codex account switching are independently switched in config.json.
  * No tokenizer, extra model requests, transcript writes, or custom footer.
  */
 import { performance } from "node:perf_hooks";
 import { registerCacheDiagnostics } from "./cache-diagnostics/index.ts";
 import { registerContextCost } from "./context-cost/index.ts";
+import { registerAccountSwitch } from "./account-switch/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "token-speed";
@@ -16,8 +17,9 @@ interface Measurement {
 }
 
 export default function tokenSpeed(pi: ExtensionAPI) {
-  registerCacheDiagnostics(pi);
+  const diagnostics = registerCacheDiagnostics(pi);
   registerContextCost(pi);
+  registerAccountSwitch(pi, { onSwitch: diagnostics.accountChanged });
   let active: Measurement | undefined;
 
   function show(ctx: ExtensionContext, text: string | undefined) {

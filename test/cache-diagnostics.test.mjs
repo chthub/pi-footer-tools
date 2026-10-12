@@ -7,6 +7,9 @@ import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
+// Keep regression tests independent of personal configuration.
+process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+
 let host = dirname(realpathSync(join(dirname(process.execPath), "pi")));
 while (!existsSync(join(host, "package.json"))) host = dirname(host);
 const { createJiti } = createRequire(join(host, "package.json"))("jiti");
@@ -345,6 +348,34 @@ test("CLI flag activates on session_start, rotates session state, and shutdown d
     assert.ok(readRows(dir).some(r => r.responseId === "resp_flag"));
     assert.equal(h.controller.status().enabled, false);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test("account switch resets an enabled comparison baseline and is a no-op when diagnostics are off", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pi-cache-account-test-"));
+  let h;
+  try {
+    const off = harness(join(tmp, "off"), false);
+    await off.fire("session_start");
+    off.controller.accountChanged(off.ctx);
+    assert.equal(existsSync(join(tmp, "off")), false);
+    h = harness(join(tmp, "on"), true);
+    await h.fire("session_start");
+    const run = async (id, read) => {
+      await h.fire("before_provider_request", { payload: PAYLOAD });
+      await h.fire("provider_stream_event", { ...META, data: raw(id, read) });
+    };
+    await run("resp_old_account", 9000);
+    h.controller.accountChanged(h.ctx);
+    await run("resp_new_account", 0);
+    const dir = h.controller.status().directory;
+    await h.fire("session_shutdown");
+    const rows = readRows(dir);
+    assert.ok(rows.some(row => row.kind === "comparison_reset" && row.reason === "account_switch"));
+    assert.ok(!rows.some(row => row.kind === "anomaly"));
+  } finally {
+    await h?.fire("session_shutdown");
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("compaction before-hook prevents cold summarizer/main calls from becoming misses", async () => {

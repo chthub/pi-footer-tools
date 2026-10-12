@@ -2,7 +2,8 @@ import { join, resolve } from "node:path";
 import { getAgentDir, VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Recorder, trackedApi, type Meta } from "./core.ts";
 import { JsonlWriter } from "./writer.ts";
-import { DEFAULT_CONFIG_PATH, loadDefaults, type Defaults } from "./config.ts";
+import { loadDefaults, type Defaults } from "./config.ts";
+import { resolveConfigPath } from "../config-path.ts";
 
 export interface CaptureOptions { root?: string; configPath?: string }
 
@@ -10,7 +11,7 @@ export interface CaptureOptions { root?: string; configPath?: string }
 export function registerCacheDiagnostics(pi: ExtensionAPI, options: CaptureOptions = {}) {
   let enabled = false;
   let readDefaults = false;
-  const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
+  const configPath = options.configPath ?? resolveConfigPath();
   let defaults: Defaults | undefined;
   let defaultSource: "cli" | "config" | undefined;
   let writer: JsonlWriter | undefined;
@@ -144,5 +145,5 @@ export function registerCacheDiagnostics(pi: ExtensionAPI, options: CaptureOptio
     );
   }
   pi.on("session_shutdown", async () => { enabled = false; await stop("session_shutdown"); });
-  return { flush: async () => { await writer?.flush(); await closing; }, status: () => ({ enabled, fault, configPath, defaults, defaultSource, ...writer?.status(), counts: recorder?.counts }) };
+  return { accountChanged: (ctx: ExtensionContext) => observe(ctx, r => r.reset("account_switch")), flush: async () => { await writer?.flush(); await closing; }, status: () => ({ enabled, fault, configPath, defaults, defaultSource, ...writer?.status(), counts: recorder?.counts }) };
 }

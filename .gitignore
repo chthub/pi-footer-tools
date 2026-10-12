@@ -2,3 +2,7 @@ node_modules/
 .backups/
 *.log
 .DS_Store
+# Personal configuration belongs outside the repository; guard common local copies too.
+config.local.json
+*.private.json
+auth.json

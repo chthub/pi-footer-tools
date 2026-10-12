@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { estimate, formatStatus, type PriceModel } from "./core.ts";
-import { DEFAULT_CONFIG_PATH, loadContextCostConfig } from "./config.ts";
+import { loadContextCostConfig } from "./config.ts";
+import { resolveConfigPath } from "../config-path.ts";
 
 const STATUS_KEY = "context-cost";
 
@@ -8,7 +9,7 @@ export interface ContextCostOptions { configPath?: string }
 
 /** Read-only footer comparison; no requests, timers, compaction or model changes. */
 export function registerContextCost(pi: ExtensionAPI, options: ContextCostOptions = {}) {
-  const config = loadContextCostConfig(options.configPath ?? DEFAULT_CONFIG_PATH);
+  const config = loadContextCostConfig(options.configPath ?? resolveConfigPath());
   if (config.state === "invalid") {
     let warned = false;
     pi.on("session_start", (_event, ctx) => {
@@ -37,7 +38,7 @@ export function registerContextCost(pi: ExtensionAPI, options: ContextCostOption
     const tokens = ctx.getContextUsage()?.tokens;
     const result = estimate({
       model, historyTokens: tokens, nextTotalInputTokens: tokens,
-      startupTokens: config.startupTokens, startupMode: config.startupMode,
+      startupTokens: config.startupTokens, startupMode: config.startupMode, untieredModels: config.untieredModels,
     });
     show(ctx, formatStatus(result), force);
   }

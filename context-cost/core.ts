@@ -12,12 +12,6 @@ export interface PriceModel { id: string; provider: string; cost?: unknown }
 export const DEFAULT_STARTUP_TOKENS = 50_000;
 /** Other providers' cost data often leaves cache prices unset; do not guess for them. */
 export const PRICED_PROVIDERS: readonly string[] = ["openai", "openai-codex"];
-/**
- * Quota billing that waives the long-context tiers, by provider then exact model ID.
- * Codex subscription quota for gpt-6.1-sol has no long-context surcharge (user notice, 2026-10-11);
- * Pi's model data still lists the tier.
- */
-export const UNTIERED: Readonly<Record<string, readonly string[]>> = { "openai-codex": ["gpt-6.1-sol"] };
 
 export interface EstimateInput {
   model: PriceModel;
@@ -27,6 +21,8 @@ export interface EstimateInput {
   nextTotalInputTokens: unknown;
   startupTokens?: number;
   startupMode?: StartupMode;
+  /** Explicit local billing-policy overrides, keyed by exact provider/model ID. */
+  untieredModels?: readonly string[];
 }
 export interface Estimate {
   /** null when H or T is unknown; never coerced to 0. */
@@ -53,7 +49,7 @@ function rates(value: unknown): Rates | undefined {
 /** Base rates plus request-wide tiers; any malformed tier makes the whole model unpriced. */
 interface Price { base: Rates; tiers: Tier[]; tiered: boolean }
 
-export function priceTiers(model: PriceModel): Price | undefined {
+export function priceTiers(model: PriceModel, untieredModels: readonly string[] = []): Price | undefined {
   if (!PRICED_PROVIDERS.includes(model.provider)) return undefined;
   const base = rates(model.cost);
   if (!base) return undefined;
@@ -66,7 +62,7 @@ export function priceTiers(model: PriceModel): Price | undefined {
     if (!tierRates || !rate(above)) return undefined;
     tiers.push({ ...tierRates, inputTokensAbove: above });
   }
-  const tiered = !(Object.hasOwn(UNTIERED, model.provider) && UNTIERED[model.provider].includes(model.id));
+  const tiered = !untieredModels.includes(`${model.provider}/${model.id}`);
   return { base, tiers: tiered ? tiers : [], tiered };
 }
 
@@ -85,7 +81,7 @@ function tierFor(price: Price, totalInput: number): Rates {
 
 /** Returns undefined for a model without usable OpenAI pricing. */
 export function estimate(input: EstimateInput): Estimate | undefined {
-  const price = priceTiers(input.model);
+  const price = priceTiers(input.model, input.untieredModels);
   if (!price) return undefined;
 
   const { historyTokens: h, nextTotalInputTokens: t } = input;

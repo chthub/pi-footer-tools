@@ -8,6 +8,9 @@ import { afterEach, beforeEach, mock, test } from "node:test";
 import { pathToFileURL } from "node:url";
 
 // Use the same TS loader as the installed Pi; no dependencies or API requests.
+// Keep regression tests independent of personal configuration.
+process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+
 let root = dirname(realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim()));
 while (!existsSync(join(root, "package.json"))) {
   const parent = dirname(root);
@@ -27,6 +30,7 @@ test("installed Pi loader accepts extension with no model tools and an opt-in di
   assert.equal(result.extensions[0].handlers.has("provider_stream_event"), false);
   assert.equal(result.extensions[0].tools.size, 0);
   assert.equal(result.extensions[0].commands.size, 1);
+  assert.equal(result.extensions[0].commands.has("switch-account"), false);
   assert.ok(result.extensions[0].commands.has("cache-diagnostics"));
 });
 
@@ -41,7 +45,7 @@ function harness(mode = "tui") {
   const handlers = new Map();
   const statuses = new Map([["another-extension", "unchanged"]]);
   const writes = [];
-  const ctx = { mode, ui: { setStatus(key, value) {
+  const ctx = { mode, ui: { notify() {}, setStatus(key, value) {
     statuses.set(key, value);
     writes.push([key, value]);
   } } };

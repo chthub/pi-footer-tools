@@ -6,6 +6,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
+// Keep regression tests independent of personal configuration.
+process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+
 let root = dirname(realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim()));
 while (!existsSync(join(root, "package.json"))) root = dirname(root);
 const { createJiti } = createRequire(join(root, "package.json"))("jiti");
@@ -84,8 +87,9 @@ test("uncached-input startup is opt-in; default stays cache-write", () => {
   assert.match(formatStatus(at(SOL, 0)), /Cold start \$0\.1250$/);
 });
 
-test("Codex subscription gpt-6.1-sol has no long-context tier; Astra and other providers keep it", () => {
-  const codex = (id, h, t = h, extra = {}) => estimate({ model: model(id, "openai-codex"), historyTokens: h, nextTotalInputTokens: t, ...extra });
+test("local untiered policy is opt-in and matches exact provider/model IDs", () => {
+  assert.equal(estimate({ model: model(SOL, "openai-codex"), historyTokens: 400_000, nextTotalInputTokens: 400_000 }).tiered, true);
+  const codex = (id, h, t = h, extra = {}) => estimate({ model: model(id, "openai-codex"), untieredModels: [`openai-codex/${SOL}`], historyTokens: h, nextTotalInputTokens: t, ...extra });
   for (const [tokens, history] of [[272_000, 0.0272], [272_001, 0.0272001], [800_000, 0.08]]) {
     const result = codex(SOL, tokens);
     close(result.historyUsd, history);
@@ -126,7 +130,7 @@ test("any OpenAI model with usable model.cost is priced; zero cache write bills 
 
 test("unpriced: other providers, missing or malformed cost, no cache discount, bad tiers", () => {
   const bad = [
-    model(ASTRA, "openrouter"), model(SOL, "azure"), model(SOL, "anthropic"), model("glm-5.3-flash-local", "local"),
+    model(ASTRA, "openrouter"), model(SOL, "azure"), model(SOL, "anthropic"), model("example-local-model", "local"),
     model("gpt-x", "openai", undefined), model("gpt-x", "openai", null), model("gpt-x", "openai", 5),
     model("gpt-5-pro", "openai", { input: 15, output: 120, cacheRead: 0, cacheWrite: 0 }),
     model("gpt-6-luna", "openai", { input: 0.1, output: 0, cacheRead: 0, cacheWrite: 0 }),
@@ -161,19 +165,19 @@ function withConfig(content, run) {
 
 test("config: missing file/section is off; explicit booleans and modes load; malformed fails closed", () => {
   const load = content => withConfig(content, loadContextCostConfig);
-  assert.deepEqual(load(undefined), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, state: "missing" });
+  assert.deepEqual(load(undefined), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, untieredModels: [], state: "missing" });
   assert.deepEqual(load(JSON.stringify({ cacheDiagnostics: { enabledByDefault: true } })).state, "missing");
-  assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: true } })), { enabled: true, startupMode: "cache-write", startupTokens: 50_000, state: "loaded" });
-  assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: false } })), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, state: "loaded" });
+  assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: true } })), { enabled: true, startupMode: "cache-write", startupTokens: 50_000, untieredModels: [], state: "loaded" });
+  assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: false } })), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, untieredModels: [], state: "loaded" });
   assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: true, startupMode: "uncached-input" } })),
-    { enabled: true, startupMode: "uncached-input", startupTokens: 50_000, state: "loaded" });
+    { enabled: true, startupMode: "uncached-input", startupTokens: 50_000, untieredModels: [], state: "loaded" });
   for (const bad of ["{", "[]", JSON.stringify({ contextCost: true }), JSON.stringify({ contextCost: { enabled: "true" } }),
     JSON.stringify({ contextCost: { enabled: true, startupMode: "uncached" } }), JSON.stringify({ contextCost: { enabled: true, pad: "x".repeat(9000) } }),
     ...[0, -1, 1.5, "50000", null, 1e300].map(startupTokens => JSON.stringify({ contextCost: { enabled: true, startupTokens } }))]) {
-    assert.deepEqual(load(bad), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, state: "invalid" }, bad.slice(0, 60));
+    assert.deepEqual(load(bad), { enabled: false, startupMode: "cache-write", startupTokens: 50_000, untieredModels: [], state: "invalid" }, bad.slice(0, 60));
   }
   assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: true, startupTokens: 80_000 } })),
-    { enabled: true, startupMode: "cache-write", startupTokens: 80_000, state: "loaded" });
+    { enabled: true, startupMode: "cache-write", startupTokens: 80_000, untieredModels: [], state: "loaded" });
   assert.ok(DEFAULT_CONFIG_PATH.endsWith("pi-token-speed/config.json"));
   assert.equal(typeof loadContextCostConfig().enabled, "boolean");
 });
@@ -229,7 +233,7 @@ test("model switches reprice from event.model and never leave a stale amount", (
   h.fire("model_select", { model: model(SOL) });
   assert.equal(h.status(), "Cache read $0.0800 | Cold start $0.1250");
   h.fire("model_select", { model: model(SOL, "openai-codex") });
-  assert.equal(h.status(), "Cache read $0.0400 | Cold start $0.1250");
+  assert.equal(h.status(), "Cache read $0.0800 | Cold start $0.1250");
   h.ctx.model = undefined;
   h.fire("session_start", { reason: "new" });
   assert.equal(h.status(), undefined);
@@ -319,11 +323,24 @@ test("configured startup tokens change the cold-start price and, past 272k, the 
     [80_000, ASTRA, "openai", "Cache read $0.8000 | Cold start $1.0000"],
     [12_345, SOL, "openai", "Cache read $0.0800 | Cold start $0.0309"],
     [300_000, SOL, "openai", "Cache read $0.0800 | Cold start $1.5000"],
-    [300_000, SOL, "openai-codex", "Cache read $0.0400 | Cold start $0.7500"],
+    [300_000, SOL, "openai-codex", "Cache read $0.0800 | Cold start $1.5000"],
   ]) {
     const h = harness({ config: { contextCost: { enabled: true, startupTokens } }, model: model(modelId, provider) });
     h.fire("session_start", { reason: "startup" });
     assert.equal(h.status(), text);
+  }
+});
+
+test("local untieredModels config affects only listed provider/model IDs", () => {
+  const h = harness({ config: { contextCost: { enabled: true, startupTokens: 300_000, untieredModels: [`openai-codex/${SOL}`] } }, model: model(SOL, "openai-codex") });
+  h.fire("session_start");
+  assert.equal(h.status(), "Cache read $0.0400 | Cold start $0.7500");
+  h.fire("model_select", { model: model(SOL, "openai") });
+  assert.equal(h.status(), "Cache read $0.0800 | Cold start $1.5000");
+  for (const untieredModels of [true, ["missing-provider"], ["openai/"], ["openai/model extra"], [null]]) {
+    withConfig(JSON.stringify({ contextCost: { enabled: true, untieredModels } }), path => {
+      assert.equal(loadContextCostConfig(path).state, "invalid");
+    });
   }
 });
 

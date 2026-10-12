@@ -1,10 +1,12 @@
 {
   "cacheDiagnostics": {
-    "enabledByDefault": true
+    "enabledByDefault": false
+  },
+  "accountSwitch": {
+    "enabled": false,
+    "accounts": []
   },
   "contextCost": {
-    "enabled": true,
-    "startupMode": "cache-write",
-    "startupTokens": 50000
+    "enabled": false
   }
 }
