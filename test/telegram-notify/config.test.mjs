@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_CONFIG_PATH, factory, loadTelegramNotifyConfig, registerTelegramNotify, resolveConfigPath } from "./installed.mjs";
 
 function fixture(t) {
@@ -68,9 +69,31 @@ test("default factory is the gated register function; missing/off register nothi
   }
 });
 
+test("renamed package identity and bundled config do not depend on checkout directory name", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.name, "pi-footer-tools");
+  assert.equal(DEFAULT_CONFIG_PATH, fileURLToPath(new URL("../../config.json", import.meta.url)));
+});
+
+test("footer-tools personal config and environment override use the new names", t => {
+  const f = fixture(t);
+  const personal = join(f.dir, ".pi", "footer-tools.json");
+  mkdirSync(dirname(personal));
+  writeFileSync(personal, '{"telegramNotify":{"enabled":true}}');
+  env(t, "PI_FOOTER_TOOLS_CONFIG", undefined);
+  assert.equal(resolveConfigPath(f.dir), personal);
+  assert.deepEqual(loadTelegramNotifyConfig(resolveConfigPath(f.dir)), { enabled: true, state: "loaded" });
+  env(t, "PI_FOOTER_TOOLS_CONFIG", f.path);
+  writeFileSync(f.path, '{"telegramNotify":{"enabled":false}}');
+  assert.equal(resolveConfigPath(f.dir), f.path);
+  assert.deepEqual(loadTelegramNotifyConfig(), { enabled: false, state: "loaded" });
+  env(t, "PI_FOOTER_TOOLS_CONFIG", "~/custom.json");
+  assert.equal(resolveConfigPath(f.dir), join(f.dir, "custom.json"));
+});
+
 test("default loader respects explicit override and invalid personal config without project fallback", t => {
   const f = fixture(t);
-  const personal = join(f.dir, ".pi", "token-speed.json");
+  const personal = join(f.dir, ".pi", "footer-tools.json");
   assert.equal(resolveConfigPath(f.dir, ""), DEFAULT_CONFIG_PATH);
   mkdirSync(dirname(personal));
   writeFileSync(personal, "{");
@@ -79,9 +102,9 @@ test("default loader respects explicit override and invalid personal config with
   assert.equal(resolveConfigPath(f.dir, "~/custom.json"), join(f.dir, "custom.json"));
   assert.equal(resolveConfigPath(f.dir, f.path), f.path);
   writeFileSync(f.path, '{"telegramNotify":{"enabled":true}}');
-  env(t, "PI_TOKEN_SPEED_CONFIG", f.path);
+  env(t, "PI_FOOTER_TOOLS_CONFIG", f.path);
   assert.deepEqual(loadTelegramNotifyConfig(), { enabled: true, state: "loaded" });
-  env(t, "PI_TOKEN_SPEED_CONFIG", join(f.dir, "absent"));
+  env(t, "PI_FOOTER_TOOLS_CONFIG", join(f.dir, "absent"));
   assert.deepEqual(loadTelegramNotifyConfig(), { enabled: false, state: "missing" });
   // Project files are never consulted when the explicit file is missing.
   writeFileSync(join(f.dir, "telegram-notify.json"), '{"enabled":true}');

@@ -4,7 +4,8 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil
 import { Receiver, type ReceiverStatus } from "./receiver.ts";
 import { loadTelegramNotifyConfig } from "./config.ts";
 
-const STATUS_KEY = "telegram-notify";
+// Pi sorts footer statuses by key: keep TG after token speed and before "lsp".
+const STATUS_KEY = "footer-tools.tui.telegram-notify";
 const SHORTCUT = "alt+n";
 const TIMEOUT_MS = 5_000;
 const CONFIG_FILE = "telegram-notify.json";

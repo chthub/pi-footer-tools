@@ -1,9 +1,9 @@
 {
-  "name": "pi-token-speed",
+  "name": "pi-footer-tools",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi footer token speed with opt-in diagnostics, account switching, context costs and Telegram",
+  "description": "Pi footer tools: token speed, opt-in account switching, context costs, cache diagnostics and Telegram",
   "keywords": [
     "pi-package"
   ],

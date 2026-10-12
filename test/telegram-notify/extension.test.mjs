@@ -33,7 +33,7 @@ function harness(mode = "tui") {
   }, { configPath });
   const fire = (name, event = {}) => handlers.get(name)?.(event, ctx);
   const toggle = () => shortcuts.get("alt+n").handler(ctx);
-  const status = () => statuses.get("telegram-notify");
+  const status = () => statuses.get("footer-tools.tui.telegram-notify");
   const h = { handlers, shortcuts, commands, statuses, warnings, ctx, fire, toggle, status };
   windows.push(h);
   fire("session_start", { reason: "startup" });
@@ -45,7 +45,7 @@ beforeEach(() => {
   const runtime = new URL("./.test-runtime/", import.meta.url);
   mkdirSync(runtime, { recursive: true });
   agentDir = mkdtempSync(join(runtime.pathname, "config-"));
-  configPath = join(agentDir, "token-speed.json");
+  configPath = join(agentDir, "footer-tools.json");
   writeFileSync(configPath, JSON.stringify({ telegramNotify: { enabled: true } }));
   process.env.PI_CODING_AGENT_DIR = agentDir;
   process.env.TELEGRAM_BOT_TOKEN = "test-only:never-a-real-token";

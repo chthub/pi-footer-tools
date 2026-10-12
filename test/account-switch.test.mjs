@@ -83,7 +83,7 @@ test("personal config path priority is portable, explicit, and does not fall bac
   const home = join(f.home, "isolated-home");
   mkdirSync(home);
   assert.equal(resolveConfigPath(home, ""), DEFAULT_CONFIG_PATH);
-  const privatePath = join(home, ".pi", "token-speed.json");
+  const privatePath = join(home, ".pi", "footer-tools.json");
   mkdirSync(dirname(privatePath));
   writeFileSync(privatePath, "{", { mode: 0o600 });
   assert.equal(resolveConfigPath(home, ""), privatePath);

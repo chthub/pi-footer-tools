@@ -1,6 +1,16 @@
-# Pi 底部测速
+# Pi 底栏工具集
 
-自动在现有底部栏追加一段状态，不替换 footer，不影响其他扩展。测速始终启用；账户切换、缓存诊断、上下文费用对照和 [Telegram 通知／回复](telegram-notify/README.md) 均为可选功能。Telegram 从 `pi-telegram-notify` 合并到本仓库，默认完全关闭，后续只维护 `telegram-notify/`。
+`pi-footer-tools` 是 Pi 现有底栏的小工具集合：追加状态，不替换 footer，不影响其他扩展。
+
+- **输出测速**：始终启用，显示每次模型请求的输出均速。
+- **账户切换**：可选，在当前窗口切换 Codex 认证并显示账户名。
+- **上下文费用对照**：可选，显示缓存读取与冷启动的 API 等价费用估计。
+- **缓存诊断**：可选，通过命令查看状态并记录受限元数据。
+- **[Telegram 通知／回复](telegram-notify/README.md)**：可选，显示窗口开关状态，支持完成通知与授权回复。
+
+可选功能均由独立配置控制，仓库默认全部关闭。Telegram 从 `pi-telegram-notify` 合并到本仓库，后续只维护 `telegram-notify/`。
+
+## 输出测速
 
 ```text
 Avg 43.7 tok/s
@@ -21,10 +31,22 @@ Avg 43.7 tok/s
 把仓库克隆到任意位置，再在 Pi 的扩展目录建立符号链接：
 
 ```text
-~/.pi/agent/extensions/pi-token-speed -> <仓库路径>/pi-token-speed
+~/.pi/agent/extensions/pi-footer-tools -> <仓库路径>/pi-footer-tools
 ```
 
 在 Pi 中执行 `/reload` 加载新代码。正常工作收到下一次模型回复时显示测速，无需专门发测试请求。卸载时移除该符号链接并 `/reload`。
+
+## 从旧名称迁移
+
+本项目由 `pi-token-speed` 更名为 `pi-footer-tools`，配置名称也一起更新，**不读取旧配置文件名或旧环境变量**：
+
+- 将现有 `~/.pi/token-speed.json` 移到 `~/.pi/footer-tools.json`，保留全部内容及 `0600` 权限；不要用仓库默认配置覆盖个人配置。如果新旧文件都存在，先人工确认使用哪份，不要直接覆盖。
+- 若使用 `PI_TOKEN_SPEED_CONFIG`，改为 `PI_FOOTER_TOOLS_CONFIG`，继续指向原来的自定义文件，或同步调整其路径；从父 shell 中移除旧变量。自定义文件不要求固定文件名。
+- 本地仓库目录及 discovery 符号链接改为 `pi-footer-tools`，同步更新 settings、启动脚本和显式 `-e` 中的旧路径；只保留一个加载入口。
+- GitHub 地址为 `https://github.com/chthub/pi-footer-tools`；已有 clone 的 remote 同步改用该地址。
+- 完成后建议**重启 Pi 并恢复原会话**，以清除旧运行时身份。此次更名不继承内存中的账户选择、测速结果或 Telegram ON 状态；账户可重新选择，Telegram 需要重新开启。
+
+配置字段（`accountSwitch`、`contextCost`、`cacheDiagnostics`、`telegramNotify`）不变；OAuth 与 Telegram 凭据、诊断日志目录及功能专用环境变量不搬动。
 
 ## 配置与隐私
 
@@ -32,8 +54,8 @@ Avg 43.7 tok/s
 
 配置优先级（按完整文件替换，不合并）：
 
-1. 环境变量 `PI_TOKEN_SPEED_CONFIG` 指定的 JSON 文件；
-2. `~/.pi/token-speed.json`，适合多个 Pi 启动配置共用；
+1. 环境变量 `PI_FOOTER_TOOLS_CONFIG` 指定的 JSON 文件；
+2. `~/.pi/footer-tools.json`，适合多个 Pi 启动配置共用；
 3. 仓库自带的 `config.json`。
 
 个人账户名、目录和偏好请放在**仓库外**的上述个人配置文件中。文件不需要包含令牌；各账户的 OAuth 凭据仍保存在自己的 `auth.json`。建议个人配置权限为 `0600`。非法／无法读取的配置按关闭处理，不会跳过私人文件回退到另一个配置；修改后执行 `/reload`。指定的配置文件缺失时同样不会回退。
@@ -52,9 +74,9 @@ Avg 43.7 tok/s
 
 - `enabled` 必须是 JSON 布尔值；默认 `false`，缺少配置段或非法配置也按关闭处理。**没有 `enabledByDefault` 选项。** 显式 `false` 或缺少配置时，不注册 `/notify`、Alt+N、Telegram 功能事件或 TG 状态，不读取 Telegram 凭据，不发请求、不启动收件进程。非法／无法读取的配置同样保持关闭，但会注册一个仅用于在 TUI 警告一次的 `session_start` handler。
 - `true` 只加载能力，**每个窗口仍从 OFF 开始**。执行 `/reload` 后用 **Alt+N** 或 `/notify on` 开启，`/notify off` 关闭，`/notify status` 查询；不带参数的 `/notify` 切换。运行时开关不写回配置，重载／新建／恢复／分叉会话后重新 OFF。
-- 凭据保持原位置：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 或 `<agent-dir>/telegram-notify.json`，环境变量逐字段优先；不搬入测速配置。默认只发送，`receiveMessages: true` 才允许收件，群聊还需 `allowedUserIds` 白名单。
+- 凭据保持原位置：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 或 `<agent-dir>/telegram-notify.json`，环境变量逐字段优先；不搬入工具集配置。默认只发送，`receiveMessages: true` 才允许收件，群聊还需 `allowedUserIds` 白名单。
 - **隐私与权限**：开启后，最终 assistant 回复文本会离开本机进入 Telegram；收件是可触发当前模型及工具的远程操作能力，不只是通知。Linux `flock` 收件协调仅限同用户、同主机，不能让同一个 bot 跨主机／节点安全共享。
-- **迁移必须手动完成**：先在现有外部测速配置中启用并保留其他字段，再移除旧 `pi-telegram-notify` discovery 符号链接，或在 Pi settings 中禁用旧包的扩展，然后 `/reload`。**绝不要同时加载新旧实现**（也检查显式 `-e` 等入口）。仓库更新不会自动修改个人配置、凭据或已安装链接。旧仓库保留为独立归档回滚版本，不是依赖相邻仓库的包装器。
+- **迁移必须手动完成**：先在现有外部工具集配置中启用并保留其他字段，再移除旧 `pi-telegram-notify` discovery 符号链接，或在 Pi settings 中禁用旧包的扩展，然后 `/reload`。**绝不要同时加载新旧实现**（也检查显式 `-e` 等入口）。仓库更新不会自动修改个人配置、凭据或已安装链接。旧仓库保留为独立归档回滚版本，不是依赖相邻仓库的包装器。
 
 完整安全边界、凭据配置、收件及迁移步骤见 [Telegram 说明](telegram-notify/README.md)。本次合并已在 **Pi 1.1.0** 验证：Telegram Node 套件及真实 Pi PTY 集成测试使用合成模型和拦截的 Telegram 请求，不代表真实 bot 端到端验证。
 
@@ -174,6 +196,10 @@ Cache read $0.8000 | Cold start $0.6250
 只在 TUI 模式显示；Pi 没有主题切换事件，切换主题后灰色在下一次刷新时更新。会话开始／恢复／fork／reload、切换模型、每轮结束、压缩和树导航后本地重算，没有定时器、网络或模型请求。切换到未支持模型时立即替换旧金额；退出时只清除自己的状态项。
 
 ## 测试
+
+更名回归（Pi **1.1.0**）：完整 `npm test` **142/142 通过**，无失败或跳过；生产类型检查、Telegram fixture 类型检查、两套真实 Pi PTY 测试及本次修改的 Python 文件 Ruff／basedpyright 检查均通过。新增测试覆盖新包名、个人配置文件名与环境变量优先级；PTY 使用合成模型和拦截的 Telegram 请求，不代表真实 bot 端到端验证。
+
+底栏排序调整后，新增「测速 → TG → LSP」顺序回归测试，重新运行完整 `npm test` **143/143 通过**，生产类型检查通过；该次检查未重跑 PTY 套件。
 
 `npm test` 需要 PATH 上已安装 Pi（`npm install -g @earendil-works/pi-coding-agent`），使用已安装 Pi 的加载器及 jiti 加载实际扩展，再用确定性事件及单调时钟验证统计；上下文费用对照另有纯计算（验收表、分档、可配置不分档策略、未知值）、配置解析和生命周期测试。测试不调用模型、不访问 API。账户切换测试使用临时合成凭据和已安装 Pi 的真实 ModelRuntime，覆盖认证路由、保持请求上下文／模型、并发 OAuth 刷新及正确写回、登录／登出、失败回滚、reload／关闭、非 TUI 和命令交互，不读取或改动真实账号。诊断测试只在临时目录写合成日志并清理，包含原始字段缺失／显式零、转换差异、异常前后对照、并发关联保护、默认关闭、动态订阅、权限／轮换、写失败及开启诊断时的测速回归。
 

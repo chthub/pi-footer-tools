@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 
 // Use the same TS loader as the installed Pi; no dependencies or API requests.
 // Keep regression tests independent of personal configuration.
-process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+process.env.PI_FOOTER_TOOLS_CONFIG = new URL("../config.json", import.meta.url).pathname;
 
 let root = dirname(realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim()));
 while (!existsSync(join(root, "package.json"))) {
@@ -61,7 +61,7 @@ function harness(mode = "tui") {
   const fire = (name, event = {}) => {
     for (const handler of handlers.get(name) ?? []) handler(event, ctx);
   };
-  const h = { fire, statuses, writes, status: () => statuses.get("token-speed") };
+  const h = { fire, statuses, writes, status: () => statuses.get("footer-tools.token-speed") };
   fire("session_start");
   return h;
 }

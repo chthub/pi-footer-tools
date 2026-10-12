@@ -4,6 +4,8 @@ node_modules/
 .DS_Store
 # Personal configuration belongs outside the repository; guard common local copies too.
 config.local.json
+footer-tools.json
+token-speed.json
 *.private.json
 auth.json
 telegram-notify.json

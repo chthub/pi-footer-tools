@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 export const DEFAULT_CONFIG_PATH = fileURLToPath(new URL("./config.json", import.meta.url));
 
 /** Whole-file replacement, not a merge. Never fall back past an invalid private file. */
-export function resolveConfigPath(home = homedir(), override = process.env.PI_TOKEN_SPEED_CONFIG): string {
+export function resolveConfigPath(home = homedir(), override = process.env.PI_FOOTER_TOOLS_CONFIG): string {
   if (override) return resolve(override.startsWith("~/") ? join(home, override.slice(2)) : override);
-  const personal = join(home, ".pi", "token-speed.json");
+  const personal = join(home, ".pi", "footer-tools.json");
   try { lstatSync(personal); return personal; }
   catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return DEFAULT_CONFIG_PATH;

@@ -6,7 +6,7 @@ import type { AccountProfile } from "./config.ts";
 
 type CredentialStore = NonNullable<CreateModelRuntimeOptions["credentials"]>;
 export const PROVIDER = "openai-codex";
-const STATE_KEY = Symbol.for("pi-token-speed.account-switch.routing.v1");
+const STATE_KEY = Symbol.for("pi-footer-tools.account-switch.routing.v1");
 
 interface RuntimeCredentials {
   store: CredentialStore;

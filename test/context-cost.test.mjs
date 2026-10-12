@@ -5,9 +5,10 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 // Keep regression tests independent of personal configuration.
-process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+process.env.PI_FOOTER_TOOLS_CONFIG = new URL("../config.json", import.meta.url).pathname;
 
 let root = dirname(realpathSync(execFileSync("which", ["pi"], { encoding: "utf8" }).trim()));
 while (!existsSync(join(root, "package.json"))) root = dirname(root);
@@ -178,7 +179,7 @@ test("config: missing file/section is off; explicit booleans and modes load; mal
   }
   assert.deepEqual(load(JSON.stringify({ contextCost: { enabled: true, startupTokens: 80_000 } })),
     { enabled: true, startupMode: "cache-write", startupTokens: 80_000, untieredModels: [], state: "loaded" });
-  assert.ok(DEFAULT_CONFIG_PATH.endsWith("pi-token-speed/config.json"));
+  assert.equal(DEFAULT_CONFIG_PATH, fileURLToPath(new URL("../config.json", import.meta.url)));
   assert.equal(typeof loadContextCostConfig().enabled, "boolean");
 });
 

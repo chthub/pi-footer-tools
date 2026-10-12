@@ -42,11 +42,11 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 afterEach(() => { mock.restoreAll(); syncBuiltinESMExports(); });
 function fixture(t, config = {}) {
   const dir = fs.mkdtempSync(join(tmpdir(), "pi-tg-integrated-"));
-  const configPath = join(dir, "token-speed.json");
+  const configPath = join(dir, "footer-tools.json");
   fs.writeFileSync(configPath, JSON.stringify({ cacheDiagnostics: { enabledByDefault: false }, ...config }));
-  const names = ["PI_TOKEN_SPEED_CONFIG", "PI_CODING_AGENT_DIR", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
+  const names = ["PI_FOOTER_TOOLS_CONFIG", "PI_CODING_AGENT_DIR", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
   const before = Object.fromEntries(names.map(name => [name, process.env[name]]));
-  process.env.PI_TOKEN_SPEED_CONFIG = configPath;
+  process.env.PI_FOOTER_TOOLS_CONFIG = configPath;
   process.env.PI_CODING_AGENT_DIR = dir;
   process.env.TELEGRAM_BOT_TOKEN = "test-only:integrated-token";
   process.env.TELEGRAM_CHAT_ID = "123";
@@ -137,13 +137,13 @@ test("main entry default off adds no Telegram commands, shortcuts, status, handl
   try {
     await off.fire("session_start");
     await speedRun(off);
-    assert.match(off.statuses.get("token-speed"), /^Avg /);
+    assert.match(off.statuses.get("footer-tools.token-speed"), /^Avg /);
     await off.fire("agent_settled");
     await off.fire("session_shutdown", { reason: "reload" });
     assert.deepEqual(guard.counts(), { fileReads: 0, envReads: 0 });
   } finally { guard.restore(); }
-  assert.equal(off.statuses.has("telegram-notify"), false);
-  assert.equal(off.statuses.get("token-speed"), undefined);
+  assert.equal(off.statuses.has("footer-tools.tui.telegram-notify"), false);
+  assert.equal(off.statuses.get("footer-tools.token-speed"), undefined);
   assert.equal(off.statuses.get("other-extension"), "untouched");
   assert.equal(f.sent.length, 0);
 });
@@ -186,13 +186,35 @@ test("real loader default off creates no Telegram resources even with legacy cre
   assert.equal(ext.handlers.has("agent_settled"), false);
 });
 
+test("footer status order keeps Telegram after speed and before LSP", async t => {
+  const f = fixture(t, { telegramNotify: { enabled: true } });
+  const h = harness(f);
+  await h.fire("session_start");
+  await speedRun(h);
+  h.statuses.set("lsp", "LSP: 0/7 servers");
+  h.statuses.set("context-cost", "Cache read $0.0006 | Cold start $0.1250");
+  h.statuses.set("account-switch", "pi");
+  // Match Pi's footer renderer: localeCompare on keys, not registration order.
+  const ordered = [...h.statuses.entries()]
+    .filter(([key]) => key !== "other-extension")
+    .sort(([a], [b]) => a.localeCompare(b));
+  assert.deepEqual(ordered.map(([, text]) => text), [
+    "pi",
+    "Cache read $0.0006 | Cold start $0.1250",
+    h.statuses.get("footer-tools.token-speed"),
+    "TG: OFF [Alt+N]",
+    "LSP: 0/7 servers",
+  ]);
+  assert.equal(f.sent.length, 0);
+});
+
 test("enabled main entry composes both message_end handlers and speed/TG statuses without transcript effects", async t => {
   const f = fixture(t, { telegramNotify: { enabled: true } });
   let now = 1000;
   mock.method(performance, "now", () => now);
   const h = harness(f);
   await h.fire("session_start");
-  assert.equal(h.statuses.get("telegram-notify"), "TG: OFF [Alt+N]");
+  assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), "TG: OFF [Alt+N]");
   assert.equal(h.handlers.get("message_end").length, 2);
   h.toggle();
   await h.fire("before_agent_start");
@@ -200,8 +222,8 @@ test("enabled main entry composes both message_end handlers and speed/TG statuse
   await h.fire("message_update", { message: { role: "assistant" }, assistantMessageEvent: { type: "text_delta", delta: "reply" } });
   now = 11000;
   await h.fire("message_end", assistant("final answer"));
-  assert.equal(h.statuses.get("token-speed"), "Avg 50.0 tok/s");
-  assert.equal(h.statuses.get("telegram-notify"), "TG: ON [Alt+N]");
+  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg 50.0 tok/s");
+  assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), "TG: ON [Alt+N]");
   await h.fire("agent_end");
   assert.equal(f.sent.length, 0);
   await h.fire("agent_settled");
@@ -210,7 +232,7 @@ test("enabled main entry composes both message_end handlers and speed/TG statuse
   assert.deepEqual(h.prompts, []);
   assert.equal(h.statuses.get("other-extension"), "untouched");
   await h.command("off");
-  assert.equal(h.statuses.get("token-speed"), "Avg 50.0 tok/s");
+  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg 50.0 tok/s");
 });
 
 test("invalid capability warns exactly once in TUI and never quotes private content or reads credentials", async t => {
@@ -246,7 +268,7 @@ test("credential-access guard observes enabled TUI reads; registration itself is
     await h.fire("session_start");
     assert.equal(guard.counts().fileReads, 1);
     assert.ok(guard.counts().envReads >= 2);
-    assert.equal(h.statuses.get("telegram-notify"), "TG: OFF [Alt+N]");
+    assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), "TG: OFF [Alt+N]");
   } finally { guard.restore(); }
 });
 
@@ -293,8 +315,8 @@ test("reload aborts old delivery, clears only own statuses and applies capabilit
   reject(new Error("secret-late-error"));
   await flush();
   assert.equal(h.notices.length, 0);
-  assert.equal(h.statuses.get("telegram-notify"), undefined);
-  assert.equal(h.statuses.get("token-speed"), undefined);
+  assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), undefined);
+  assert.equal(h.statuses.get("footer-tools.token-speed"), undefined);
   assert.equal(h.statuses.get("other-extension"), "untouched");
   await h.fire("message_end", { message: { role: "assistant", get content() {
     throw new Error("disposed Telegram must not retain assistant text");
@@ -303,7 +325,7 @@ test("reload aborts old delivery, clears only own statuses and applies capabilit
   await fresh.fire("session_start");
   assert.equal(fresh.commands.has("notify"), false);
   assert.equal(fresh.shortcuts.size, 0);
-  assert.equal(fresh.statuses.has("telegram-notify"), false);
+  assert.equal(fresh.statuses.has("footer-tools.tui.telegram-notify"), false);
   await h.fire("agent_settled");
   assert.equal(f.sent.length, 0);
 });
@@ -340,7 +362,7 @@ test("integrated reception remembers sent IDs; Telegram slash replies remain fol
   try {
     await h.fire("session_start");
     h.toggle();
-    await wait(() => h.statuses.get("telegram-notify").includes("RX:READY"), "receiver ready");
+    await wait(() => h.statuses.get("footer-tools.tui.telegram-notify").includes("RX:READY"), "receiver ready");
     await h.fire("message_end", assistant("notification reply target"));
     await h.fire("agent_settled");
     await flush();
@@ -355,7 +377,7 @@ test("integrated reception remembers sent IDs; Telegram slash replies remain fol
     pending.push(update(4, 11, "after OFF"));
     await sleep(80);
     assert.equal(h.prompts.length, 1);
-    assert.equal(h.statuses.get("telegram-notify"), "TG: OFF [Alt+N]");
+    assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), "TG: OFF [Alt+N]");
     assert.equal(collectorLaunches, 0);
   } finally {
     await h.fire("session_shutdown", { reason: "reload" });

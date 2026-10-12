@@ -1,6 +1,6 @@
 # 可选 Telegram 通知与回复
 
-本目录是 Telegram 功能的唯一后续维护入口，随 `pi-token-speed` 加载，无需另装扩展。旧 `pi-telegram-notify` 仓库保留为**独立的归档回滚版本**，不依赖本目录，也不继续双份维护。
+本目录是 Telegram 功能的唯一后续维护入口，随 `pi-footer-tools` 加载，无需另装扩展。旧 `pi-telegram-notify` 仓库保留为**独立的归档回滚版本**，不依赖本目录，也不继续双份维护。
 
 本次合并已在 **Pi 1.1.0**（包名 `@earendil-works/pi-coding-agent`）通过 Node 套件、类型检查及真实 Pi PTY 集成验证；模型为合成 provider，Telegram 请求被拦截，不代表真实 bot 端到端验证。运行时使用 Node 原生网络能力；可选收件还需要 Linux 的 `flock`。
 
@@ -8,10 +8,10 @@
 
 ### 1. 配置总开关：默认完全关闭
 
-沿用 [测速配置](../README.md#配置与隐私) 的优先级，**按完整文件替换，不合并**：
+沿用 [工具集配置](../README.md#配置与隐私) 的优先级，**按完整文件替换，不合并**：
 
-1. `PI_TOKEN_SPEED_CONFIG` 指定的 JSON 文件；
-2. `~/.pi/token-speed.json`；
+1. `PI_FOOTER_TOOLS_CONFIG` 指定的 JSON 文件；
+2. `~/.pi/footer-tools.json`；
 3. 仓库自带的 `config.json`。
 
 在选中的配置文件里加入此段；已有配置时必须保留其他字段，不要用示例覆盖整个文件：
@@ -30,7 +30,7 @@
 
 ### 2. 当前窗口开关：加载能力后仍为 OFF
 
-`telegramNotify.enabled: true` 只允许加载功能，不自动开始发送或收件。TUI 页脚显示：
+`telegramNotify.enabled: true` 只允许加载功能，不自动开始发送或收件。TG 状态位于测速之后、LSP 状态之前；不替换底栏或改变其他扩展的文字。TUI 页脚显示：
 
 ```text
 TG: OFF [Alt+N]
@@ -48,7 +48,7 @@ TG: ON [Alt+N] · RX:READY
 
 ## 凭据与收件许可：位置不变
 
-**不搬动原凭据。** 仍支持 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 和用户级 `<agent-dir>/telegram-notify.json`，按字段优先使用非空环境变量，缺少时回退到 JSON。不要把 token 放进测速的 `config.json`。
+**不搬动原凭据。** 仍支持 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 和用户级 `<agent-dir>/telegram-notify.json`，按字段优先使用非空环境变量，缺少时回退到 JSON。不要把 token 放进工具集的 `config.json`。
 
 ### 用户级 JSON
 
@@ -66,7 +66,7 @@ TG: ON [Alt+N] · RX:READY
 - `token`、`chatId` 使用字符串；群组负数 ID 也写成字符串。
 - `receiveMessages` 是收件能力许可，默认 `false`，不是窗口开关。
 - `allowedUserIds` 是群聊发送者白名单，使用数字 Telegram user ID 的字符串数组，最多 100 项；不接受群用户名代替 ID。
-- 凭据文件里的 `enabled` 被忽略，不能代替测速配置总开关，也不能持久化窗口 ON。
+- 凭据文件里的 `enabled` 被忽略，不能代替工具集配置总开关，也不能持久化窗口 ON。
 - 文件在 `session_start` 读取；修改后 `/reload` 或重启，窗口仍从 OFF 开始。
 - 文件不存在、读取失败或格式／字段类型错误不会泄露解析内容；没有足够有效凭据时保持 UNCONFIGURED，开启失败只给固定本地提示。
 - 扩展不会自动创建、覆盖或迁移实际凭据文件，切换窗口状态也不会写回。
@@ -148,19 +148,19 @@ pi
 
 迁移是用户手动操作；仓库更新不修改个人文件、凭据、settings 或已安装符号链接：
 
-1. 按 [主 README](../README.md#安装) 安装／保留 `pi-token-speed` 的单一入口，不要另将本子目录作为扩展入口加载。
-2. 确定当前实际选中的测速配置文件。在已有外部配置中加入或修改 `telegramNotify.enabled: true`，保留账户切换、缓存诊断、费用等全部其他字段。完整文件替换规则不会帮你合并遗漏的字段。
+1. 按 [主 README](../README.md#安装) 安装／保留 `pi-footer-tools` 的单一入口，不要另将本子目录作为扩展入口加载。
+2. 确定当前实际选中的工具集配置文件。在已有外部配置中加入或修改 `telegramNotify.enabled: true`，保留账户切换、缓存诊断、费用等全部其他字段。完整文件替换规则不会帮你合并遗漏的字段。
 3. 保留原 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`<agent-dir>/telegram-notify.json`；不搬凭据，不自动改 `receiveMessages` 或白名单。
 4. **在重载前**移除旧 discovery 链接 `<agent-dir>/extensions/pi-telegram-notify`（只移除链接，不删归档仓库），或在 Pi settings 中禁用旧包扩展。也检查项目入口、其他 profile、显式 `-e` 等，确保旧实现不会被再次发现。
 5. 执行 `/reload`，新功能应从 `TG: OFF` 开始；需要时手动开启。旧通知路由不迁移，应回复新发送的通知。
 
-禁用新功能：在实际使用的测速配置中设 `telegramNotify.enabled: false` 并 `/reload`，无需改凭据。
+禁用新功能：在实际使用的工具集配置中设 `telegramNotify.enabled: false` 并 `/reload`，无需改凭据。
 
-回滚：先禁用新功能并 `/reload`，再手动恢复旧独立仓库的加载入口并重载，始终只加载一套 Telegram 实现。归档仓库保留原独立源码，不是引用相邻 `pi-token-speed` 的共享包装器；其旧版验证记录不等于当前 Pi 版本的兼容性保证。
+回滚：先禁用新功能并 `/reload`，再手动恢复旧独立仓库的加载入口并重载，始终只加载一套 Telegram 实现。归档仓库保留原独立源码，不是引用相邻 `pi-footer-tools` 的共享包装器；其旧版验证记录不等于当前 Pi 版本的兼容性保证。
 
 ## 验证
 
-从 `pi-token-speed` 仓库根目录运行，不能遗漏新的子目录套件：
+从 `pi-footer-tools` 仓库根目录运行，不能遗漏新的子目录套件：
 
 ```bash
 npm test

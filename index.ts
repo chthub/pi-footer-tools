@@ -1,5 +1,5 @@
 /**
- * Per-model-request speed in Pi's existing footer.
+ * Pi footer tools: per-model-request speed and opt-in companion features.
  * Speed stays allocation-light; diagnostics, context-cost comparison,
  * live Codex account switching and Telegram are independently switched in config.
  * Speed itself uses no tokenizer, extra model requests, transcript writes or custom footer.
@@ -12,13 +12,13 @@ import { registerAccountSwitch } from "./account-switch/index.ts";
 import { registerTelegramNotify } from "./telegram-notify/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const STATUS_KEY = "token-speed";
+const STATUS_KEY = "footer-tools.token-speed";
 
 interface Measurement {
   firstOutputAt?: number;
 }
 
-export default function tokenSpeed(pi: ExtensionAPI) {
+export default function footerTools(pi: ExtensionAPI) {
   const diagnostics = registerCacheDiagnostics(pi);
   registerContextCost(pi);
   registerAccountSwitch(pi, { onSwitch: diagnostics.accountChanged });

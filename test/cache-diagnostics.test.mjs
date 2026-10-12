@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 // Keep regression tests independent of personal configuration.
-process.env.PI_TOKEN_SPEED_CONFIG = new URL("../config.json", import.meta.url).pathname;
+process.env.PI_FOOTER_TOOLS_CONFIG = new URL("../config.json", import.meta.url).pathname;
 
 let host = dirname(realpathSync(join(dirname(process.execPath), "pi")));
 while (!existsSync(join(host, "package.json"))) host = dirname(host);
@@ -410,7 +410,7 @@ test("enabled diagnostics leave speed footer and other status entries intact", a
     await h.fire("message_update", { message: { role: "assistant" }, assistantMessageEvent: { type: "text_delta", delta: "private output" } });
     now = 10000; await h.fire("provider_stream_event", { ...META, data: raw("resp_footer", 9000) });
     await h.fire("message_end", { message: { role: "assistant", api: META.api, provider: META.provider, model: META.model, responseId: "resp_footer", stopReason: "stop", usage: { output: 500, cacheRead: 9000, cacheWrite: 0 } } });
-    assert.equal(statuses.get("token-speed"), "Avg 62.5 tok/s");
+    assert.equal(statuses.get("footer-tools.token-speed"), "Avg 62.5 tok/s");
     assert.equal(statuses.get("other-extension"), "kept");
   } finally {
     await h.command("off");

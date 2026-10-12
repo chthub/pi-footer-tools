@@ -34,7 +34,7 @@ class Window:
                 "receiveMessages": receive_messages,
             }))
             config.chmod(0o600)
-        feature_config = self.dir / "token-speed.json"
+        feature_config = self.dir / "footer-tools.json"
         feature_config.write_text(json.dumps({
             "cacheDiagnostics": {"enabledByDefault": False},
             **({"telegramNotify": {"enabled": True}} if feature_enabled else {}),
@@ -49,7 +49,7 @@ class Window:
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 140, 0, 0))
         env = dict(os.environ, PI_CODING_AGENT_DIR=str(self.dir),
-                   PI_TOKEN_SPEED_CONFIG=str(feature_config),
+                   PI_FOOTER_TOOLS_CONFIG=str(feature_config),
                    TG_TEST_LOG=str(self.log), TERM="xterm-256color",
                    TELEGRAM_BOT_TOKEN="test-only:fake-token", TELEGRAM_CHAT_ID="123")
         if not configured:
