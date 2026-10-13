@@ -137,7 +137,7 @@ test("main entry default off adds no Telegram commands, shortcuts, status, handl
   try {
     await off.fire("session_start");
     await speedRun(off);
-    assert.match(off.statuses.get("footer-tools.token-speed"), /^Avg /);
+    assert.match(off.statuses.get("footer-tools.token-speed"), /^Avg overall /);
     await off.fire("agent_settled");
     await off.fire("session_shutdown", { reason: "reload" });
     assert.deepEqual(guard.counts(), { fileReads: 0, envReads: 0 });
@@ -219,10 +219,11 @@ test("enabled main entry composes both message_end handlers and speed/TG statuse
   h.toggle();
   await h.fire("before_agent_start");
   await h.fire("turn_start");
+  await h.fire("before_provider_request");
   await h.fire("message_update", { message: { role: "assistant" }, assistantMessageEvent: { type: "text_delta", delta: "reply" } });
   now = 11000;
   await h.fire("message_end", assistant("final answer"));
-  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg 50.0 tok/s");
+  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg overall 50.0 tok/s");
   assert.equal(h.statuses.get("footer-tools.tui.telegram-notify"), "TG: ON [Alt+N]");
   await h.fire("agent_end");
   assert.equal(f.sent.length, 0);
@@ -232,7 +233,7 @@ test("enabled main entry composes both message_end handlers and speed/TG statuse
   assert.deepEqual(h.prompts, []);
   assert.equal(h.statuses.get("other-extension"), "untouched");
   await h.command("off");
-  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg 50.0 tok/s");
+  assert.equal(h.statuses.get("footer-tools.token-speed"), "Avg overall 50.0 tok/s");
 });
 
 test("invalid capability warns exactly once in TUI and never quotes private content or reads credentials", async t => {

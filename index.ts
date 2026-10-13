@@ -14,9 +14,14 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 const STATUS_KEY = "footer-tools.token-speed";
 
+type SpeedMode = "overall" | "stream";
+
 interface Measurement {
+  requestStartedAt?: number;
   firstOutputAt?: number;
 }
+
+type SpeedResult = Record<SpeedMode, string>;
 
 export default function footerTools(pi: ExtensionAPI) {
   const diagnostics = registerCacheDiagnostics(pi);
@@ -24,15 +29,47 @@ export default function footerTools(pi: ExtensionAPI) {
   registerAccountSwitch(pi, { onSwitch: diagnostics.accountChanged });
   registerTelegramNotify(pi);
   let active: Measurement | undefined;
+  let mode: SpeedMode = "overall";
+  let lastResult: SpeedResult | undefined;
 
   function show(ctx: ExtensionContext, text: string | undefined) {
     if (ctx.mode === "tui") ctx.ui.setStatus(STATUS_KEY, text);
   }
 
+  function render(ctx: ExtensionContext) {
+    show(ctx, lastResult ? `Avg ${mode} ${lastResult[mode]} tok/s` : undefined);
+  }
+
   function reset(ctx: ExtensionContext) {
     active = undefined;
+    lastResult = undefined;
     show(ctx, undefined);
   }
+
+  pi.registerCommand("token-speed", {
+    description: "Switch token speed: overall (request to end) or stream (first output to end)",
+    getArgumentCompletions: (prefix) => {
+      const options = ["overall", "stream", "status"].filter((value) => value.startsWith(prefix));
+      return options.length ? options.map((value) => ({ value, label: value })) : null;
+    },
+    handler: async (args, ctx) => {
+      if (ctx.mode !== "tui") return;
+      const choice = args.trim().toLowerCase();
+      if (choice === "status") {
+        ctx.ui.notify(`Token speed: ${mode}`, "info");
+        return;
+      }
+      if (choice && choice !== "overall" && choice !== "stream") {
+        ctx.ui.notify("Usage: /token-speed [overall|stream|status]", "warning");
+        return;
+      }
+      mode = choice === "overall" || choice === "stream"
+        ? choice
+        : (mode === "overall" ? "stream" : "overall");
+      render(ctx); // Reuse both measurements of the last request; no new model call.
+      ctx.ui.notify(`Token speed: ${mode}`, "info");
+    },
+  });
 
   pi.on("session_start", (_event, ctx) => reset(ctx));
   pi.on("session_tree", (_event, ctx) => reset(ctx));
@@ -42,6 +79,12 @@ export default function footerTools(pi: ExtensionAPI) {
     if (ctx.mode !== "tui") return;
     active = {};
     // Keep the previous result visible until this request finishes.
+  });
+
+  pi.on("before_provider_request", () => {
+    // Earliest request-payload hook, not an exact socket-send timestamp.
+    // Keep the first timestamp so retries within this message include their waits.
+    if (active) active.requestStartedAt ??= performance.now();
   });
 
   pi.on("message_update", (event) => {
@@ -59,16 +102,21 @@ export default function footerTools(pi: ExtensionAPI) {
     const measurement = active;
     active = undefined; // Stop BEFORE tool execution; keep the completed result in the footer.
     const message = event.message;
-    const outputSeconds = measurement.firstOutputAt === undefined
-      ? 0
-      : (performance.now() - measurement.firstOutputAt) / 1000;
+    const endedAt = performance.now();
     const tokens = message.usage.output;
     const complete = ["stop", "length", "toolUse"].includes(message.stopReason);
     const knownTokens = Number.isSafeInteger(tokens) && tokens > 0;
-    const speed = complete && knownTokens && outputSeconds > 0
-      ? (tokens / outputSeconds).toFixed(1)
-      : "--";
-    show(ctx, `Avg ${speed} tok/s`);
+    const speed = (startedAt: number | undefined) => {
+      const seconds = startedAt === undefined ? 0 : (endedAt - startedAt) / 1000;
+      return complete && knownTokens && seconds > 0
+        ? (tokens / seconds).toFixed(1)
+        : "--";
+    };
+    lastResult = {
+      overall: speed(measurement.requestStartedAt),
+      stream: speed(measurement.firstOutputAt),
+    };
+    render(ctx);
   });
 
   pi.on("agent_end", () => {
@@ -76,8 +124,5 @@ export default function footerTools(pi: ExtensionAPI) {
     active = undefined;
   });
 
-  pi.on("session_shutdown", (_event, ctx) => {
-    active = undefined;
-    show(ctx, undefined);
-  });
+  pi.on("session_shutdown", (_event, ctx) => reset(ctx));
 }

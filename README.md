@@ -1,68 +1,85 @@
-# Pi 底栏工具集
+# pi-footer-tools
 
-`pi-footer-tools` 是 Pi 现有底栏的小工具集合：追加状态，不替换 footer，不影响其他扩展。
+[English](README.md) | [Chinese](README.zh.md)
 
-- **输出测速**：始终启用，显示每次模型请求的输出均速。
-- **账户切换**：可选，在当前窗口切换 Codex 认证并显示账户名。
-- **上下文费用对照**：可选，显示缓存读取与冷启动的 API 等价费用估计。
-- **缓存诊断**：可选，通过命令查看状态并记录受限元数据。
-- **[Telegram 通知／回复](telegram-notify/README.md)**：可选，显示窗口开关状态，支持完成通知与授权回复。
+`pi-footer-tools` is a collection of small tools for Pi's existing footer: it adds status items without replacing the footer or interfering with other extensions.
 
-可选功能均由独立配置控制，仓库默认全部关闭。Telegram 从 `pi-telegram-notify` 合并到本仓库，后续只维护 `telegram-notify/`。
+- **Output speed**: always enabled; displays the average output speed of each model request.
+- **Account switching**: optional; switches Codex authentication in the current window and displays the account name.
+- **Context cost comparison**: optional; displays estimated API-equivalent costs for cache reads and cold starts.
+- **Cache diagnostics**: optional; provides status commands and records restricted metadata.
+- **[Telegram notifications/replies](telegram-notify/README.md)**: optional; displays the window's toggle state and supports completion notifications and authorized replies.
 
-## 输出测速
+Each optional feature has its own configuration switch. All are disabled by default in the repository. Telegram was merged from `pi-telegram-notify` into this repository; only `telegram-notify/` is maintained going forward.
 
-```text
-Avg 43.7 tok/s
-```
+## Output speed
 
-- **Avg（均速）**：API 返回的 `usage.output` ÷ 输出阶段耗时。输出阶段从首次非空正文、思考或工具参数增量开始，到本次模型消息结束；不计首次输出之前的等待，不包括工具执行。它是客户端观测的流式输出均速，不是纯正文或服务端 GPU 解码速度。
-- **只显示英文均速**：不显示“测速”、首字延迟、输出 token 总数、思考细分或结束原因。计算仍使用 API 返回的输出用量，包含思考与生成的工具调用；不数流式块、不根据字符数猜。
-- 等待、思考、输出和工具执行期间持续显示上一次结果；每次模型请求结束后直接替换为新结果，不显示中间状态。首次运行尚无结果时不显示测速项。
-- 未收到最终模型消息就结束的请求不替换上次结果。
-- 缺失用量、失败、中断、没有非空输出增量或输出阶段零耗时时，显示 `Avg -- tok/s`。
-- 均速不依赖请求前钩子，不计首次输出前的重试等待，但首次输出后的停顿、内部重试以及结束事件的传输延迟仍计入输出阶段。
-- **测量局限**：使用全部输出 token，但无法知道首个流式块包含多少 token，也无法观测服务商未流式公开的思考过程；尤其是短回复、批量到达或隐藏思考时，均速可能偏高，不能据此推断纯解码性能。
-- 不恢复历史测速结果；切换会话、历史树或模型时清空，避免把旧结果当成本次测量。
-- 测速只在 TUI 显示；测速自身没有网络或额外模型请求、定时器、tokenizer 或会话写入。诊断关闭时不写日志、不订阅额外的原始流事件。每次测速流式更新只做常数时间判断，请求期间不刷新测速显示；只有请求结束、会话／模型重置和退出时更新底部。可选 Telegram 功能有独立开关：开启窗口通知后会访问 Telegram；另行允许收件后，远程回复可启动模型及其工具，不属于测速的零请求保证。
-
-## 安装
-
-把仓库克隆到任意位置，再在 Pi 的扩展目录建立符号链接：
+The default measurement is `overall`; you can also select the original `stream` measurement:
 
 ```text
-~/.pi/agent/extensions/pi-footer-tools -> <仓库路径>/pi-footer-tools
+Avg overall 43.7 tok/s
+Avg stream 61.2 tok/s
 ```
 
-在 Pi 中执行 `/reload` 加载新代码。正常工作收到下一次模型回复时显示测速，无需专门发测试请求。卸载时移除该符号链接并 `/reload`。
+- **overall (default)**: API `usage.output` for a single assistant message in the current main session, divided by the time from its first `before_provider_request` hook to its `message_end`. The hook is an approximate timestamp before request payload submission, **not the exact socket-send time**. It excludes context preparation before the hook, but includes the wait for first output after the hook, pauses/retries, and end-of-message latency. Repeated hooks for the same message retain the first timestamp. Without a hook, it displays `Avg overall -- tok/s`, with no fallback to `turn_start`. Even without deltas, a final message with valid usage and a positive duration can produce a measurement.
+- **stream (original measurement)**: the same message's `usage.output`, divided by the time from the first nonempty text, thinking, or tool-argument delta to `message_end`. It does not depend on the pre-request hook and excludes the wait before first output (including retry waits), but includes pauses, internal retries, and end-event transport latency after first output. Without a nonempty delta, it displays `Avg stream -- tok/s`. It can work without a pre-request hook.
+- **Shared boundaries**: both use only the output usage of a single assistant message in the main session, including thinking and generated tool arguments, but excluding sub-agent tokens and tool execution time. Neither counts stream chunks nor guesses from character counts. Both are client-observed averages, **not plain-text-only speed or pure server-side GPU decoding speed**.
+- **English average and measurement label only**: no “speed test” label, first-token latency, total output tokens, thinking breakdown, or stop reason.
+- The previous result remains visible during waiting, thinking, output, and tool execution. At the end of each final model message, both measurements are saved together and directly replace the previous results, with no intermediate status. No speed item is shown before the first result. A request that ends without a final model message produces no new measurement and does not replace the previous results.
+- If the final message fails, is interrupted, lacks valid output usage, or has a nonpositive duration for a measurement, that measurement displays `--` (for example, `Avg overall -- tok/s`). A missing hook affects only overall; missing deltas affect only stream.
+- **stream limitations**: it uses all output tokens, but cannot determine how many tokens were in the first stream chunk or observe thinking that the provider does not expose in the stream. In particular, short replies, batched arrivals, or hidden thinking can inflate the stream average; it cannot establish pure decoding performance. Overall includes waiting after the pre-request hook and likewise cannot isolate pure decoding performance.
+- Historical speed results are not restored. Switching sessions, history trees, or models clears both results so old results are not mistaken for a new measurement. The measurement selection lives only in the extension runtime, not on disk or in the session. Rebuilding the extension runtime with `/reload` or a restart restores `overall`.
 
-## 从旧名称迁移
+Use these commands in the TUI (arguments support completion):
 
-本项目由 `pi-token-speed` 更名为 `pi-footer-tools`，配置名称也一起更新，**不读取旧配置文件名或旧环境变量**：
+```text
+/token-speed overall    # Select overall
+/token-speed stream     # Select stream
+/token-speed status     # Show the current measurement
+/token-speed            # Toggle overall / stream
+```
 
-- 将现有 `~/.pi/token-speed.json` 移到 `~/.pi/footer-tools.json`，保留全部内容及 `0600` 权限；不要用仓库默认配置覆盖个人配置。如果新旧文件都存在，先人工确认使用哪份，不要直接覆盖。
-- 若使用 `PI_TOKEN_SPEED_CONFIG`，改为 `PI_FOOTER_TOOLS_CONFIG`，继续指向原来的自定义文件，或同步调整其路径；从父 shell 中移除旧变量。自定义文件不要求固定文件名。
-- 本地仓库目录及 discovery 符号链接改为 `pi-footer-tools`，同步更新 settings、启动脚本和显式 `-e` 中的旧路径；只保留一个加载入口。
-- GitHub 地址为 `https://github.com/chthub/pi-footer-tools`；已有 clone 的 remote 同步改用该地址。
-- 完成后建议**重启 Pi 并恢复原会话**，以清除旧运行时身份。此次更名不继承内存中的账户选择、测速结果或 Telegram ON 状态；账户可重新选择，Telegram 需要重新开启。
+Switching measurements immediately redraws the corresponding saved result without sending a request. You can also switch during a request without changing its timing. Commands do not operate on the UI in RPC/print modes.
 
-配置字段（`accountSwitch`、`contextCost`、`cacheDiagnostics`、`telegramNotify`）不变；OAuth 与 Telegram 凭据、诊断日志目录及功能专用环境变量不搬动。
+Speed is displayed only in the TUI. Speed measurement itself makes no network or extra model requests, uses no timers or tokenizer, and writes neither disk nor session data. With diagnostics disabled, it writes no logs and subscribes to no additional raw stream events. Each speed-related stream update performs only constant-time checks; stream events do not refresh the speed display during a request. The footer is updated on request completion, measurement changes, session/model/tree resets, and exit. Optional Telegram functionality has separate switches: enabling window notifications accesses Telegram; separately allowing inbound messages lets remote replies start the model and its tools, outside speed measurement's zero-request guarantee.
 
-## 配置与隐私
+## Installation
 
-仓库中的 `config.json` 只有通用默认值：测速始终启用，其他功能默认关闭；不包含实际账户列表、认证路径或个人计费策略。
+Clone the repository anywhere, then create a symbolic link in Pi's extensions directory:
 
-配置优先级（按完整文件替换，不合并）：
+```text
+~/.pi/agent/extensions/pi-footer-tools -> <repository-path>/pi-footer-tools
+```
 
-1. 环境变量 `PI_FOOTER_TOOLS_CONFIG` 指定的 JSON 文件；
-2. `~/.pi/footer-tools.json`，适合多个 Pi 启动配置共用；
-3. 仓库自带的 `config.json`。
+Run `/reload` in Pi to load the new code. Speed appears on the next model reply during normal use; no dedicated test request is needed. To uninstall, remove the symbolic link and run `/reload`.
 
-个人账户名、目录和偏好请放在**仓库外**的上述个人配置文件中。文件不需要包含令牌；各账户的 OAuth 凭据仍保存在自己的 `auth.json`。建议个人配置权限为 `0600`。非法／无法读取的配置按关闭处理，不会跳过私人文件回退到另一个配置；修改后执行 `/reload`。指定的配置文件缺失时同样不会回退。
+## Migrating from the old name
 
-## 可选 Telegram 通知／回复（默认完全关闭）
+This project was renamed from `pi-token-speed` to `pi-footer-tools`, including its configuration names. **Old configuration filenames and environment variables are not read**:
 
-无需安装第二个扩展。只在上述配置优先级选中的**完整配置文件**中加入或修改此段；已有个人配置时保留账户、诊断、费用等其他字段，不要用示例覆盖整个文件：
+- Move your existing `~/.pi/token-speed.json` to `~/.pi/footer-tools.json`, preserving all contents and `0600` permissions. Do not overwrite personal configuration with repository defaults. If both files exist, manually decide which one to use before making any replacement.
+- If you use `PI_TOKEN_SPEED_CONFIG`, change it to `PI_FOOTER_TOOLS_CONFIG`, keeping it pointed at your existing custom file or updating the path accordingly. Remove the old variable from the parent shell. Custom files do not require a fixed filename.
+- Rename the local repository directory and discovery symbolic link to `pi-footer-tools`; update old paths in settings, startup scripts, and explicit `-e` arguments. Keep only one loading entry point.
+- The GitHub URL is `https://github.com/chthub/pi-footer-tools`; update the remote of an existing clone accordingly.
+- After migration, **restart Pi and resume the original session** to clear the old runtime identity. This rename does not inherit the in-memory account selection, speed results, or Telegram ON state. Reselect the account and re-enable Telegram as needed.
+
+Configuration fields (`accountSwitch`, `contextCost`, `cacheDiagnostics`, `telegramNotify`) are unchanged. OAuth and Telegram credentials, the diagnostics log directory, and feature-specific environment variables do not move.
+
+## Configuration and privacy
+
+The repository's `config.json` contains only generic defaults: speed is always enabled, and all other features are disabled by default. It contains no real account list, authentication paths, or personal billing policies.
+
+Configuration precedence (whole-file replacement, not merging):
+
+1. The JSON file specified by `PI_FOOTER_TOOLS_CONFIG`;
+2. `~/.pi/footer-tools.json`, suitable for sharing across multiple Pi launch configurations;
+3. The repository's `config.json`.
+
+Keep personal account names, directories, and preferences in one of the personal configuration files above, **outside the repository**. The file does not need to contain tokens; each account's OAuth credentials remain in its own `auth.json`. Permissions of `0600` are recommended. Invalid or unreadable configuration fails closed; it does not skip a private file and fall back to another configuration. Run `/reload` after changes. A missing selected configuration file also does not trigger fallback.
+
+## Optional Telegram notifications/replies (fully disabled by default)
+
+No second extension is needed. Add or modify this section only in the **complete configuration file** selected by the precedence above. If you already have personal configuration, preserve account, diagnostics, cost, and other fields; do not replace the whole file with this example:
 
 ```json
 {
@@ -72,17 +89,17 @@ Avg 43.7 tok/s
 }
 ```
 
-- `enabled` 必须是 JSON 布尔值；默认 `false`，缺少配置段或非法配置也按关闭处理。**没有 `enabledByDefault` 选项。** 显式 `false` 或缺少配置时，不注册 `/notify`、Alt+N、Telegram 功能事件或 TG 状态，不读取 Telegram 凭据，不发请求、不启动收件进程。非法／无法读取的配置同样保持关闭，但会注册一个仅用于在 TUI 警告一次的 `session_start` handler。
-- `true` 只加载能力，**每个窗口仍从 OFF 开始**。执行 `/reload` 后用 **Alt+N** 或 `/notify on` 开启，`/notify off` 关闭，`/notify status` 查询；不带参数的 `/notify` 切换。运行时开关不写回配置，重载／新建／恢复／分叉会话后重新 OFF。
-- 凭据保持原位置：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID` 或 `<agent-dir>/telegram-notify.json`，环境变量逐字段优先；不搬入工具集配置。默认只发送，`receiveMessages: true` 才允许收件，群聊还需 `allowedUserIds` 白名单。
-- **隐私与权限**：开启后，最终 assistant 回复文本会离开本机进入 Telegram；收件是可触发当前模型及工具的远程操作能力，不只是通知。Linux `flock` 收件协调仅限同用户、同主机，不能让同一个 bot 跨主机／节点安全共享。
-- **迁移必须手动完成**：先在现有外部工具集配置中启用并保留其他字段，再移除旧 `pi-telegram-notify` discovery 符号链接，或在 Pi settings 中禁用旧包的扩展，然后 `/reload`。**绝不要同时加载新旧实现**（也检查显式 `-e` 等入口）。仓库更新不会自动修改个人配置、凭据或已安装链接。旧仓库保留为独立归档回滚版本，不是依赖相邻仓库的包装器。
+- `enabled` must be a JSON boolean; the default is `false`, and a missing section or invalid configuration also disables the feature. **There is no `enabledByDefault` option.** Explicit `false` or missing configuration registers no `/notify`, Alt+N, Telegram feature events, or TG status; reads no Telegram credentials; sends no requests; and starts no receiver process. Invalid or unreadable configuration also remains disabled, but registers one `session_start` handler solely to warn once in the TUI.
+- `true` only loads the capability; **each window still starts OFF**. After `/reload`, enable it with **Alt+N** or `/notify on`, disable it with `/notify off`, or inspect it with `/notify status`. `/notify` without arguments toggles it. The runtime toggle is not written back to configuration; reload/new/resumed/forked sessions start OFF again.
+- Credentials stay in their existing location: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, or `<agent-dir>/telegram-notify.json`, with environment variables taking precedence per field. They do not move into the tools configuration. Sending only is the default; `receiveMessages: true` is required to allow inbound messages, and groups additionally require an `allowedUserIds` allowlist.
+- **Privacy and permissions**: when enabled, final assistant reply text leaves the local machine for Telegram. Receiving messages is a remote-operation capability that can trigger the current model and tools, not just notifications. Linux `flock` receiver coordination covers only the same user on the same host; it cannot safely share one bot across hosts/nodes.
+- **Migration must be manual**: first enable the feature in the existing external tools configuration while preserving other fields; then remove the old `pi-telegram-notify` discovery symbolic link, or disable the old package's extension in Pi settings, and run `/reload`. **Never load both implementations together** (also check explicit `-e` and other entry points). Repository updates do not automatically change personal configuration, credentials, or installed links. The old repository remains a standalone archived rollback version, not a wrapper dependent on an adjacent repository.
 
-完整安全边界、凭据配置、收件及迁移步骤见 [Telegram 说明](telegram-notify/README.md)。本次合并已在 **Pi 1.1.0** 验证：Telegram Node 套件及真实 Pi PTY 集成测试使用合成模型和拦截的 Telegram 请求，不代表真实 bot 端到端验证。
+See the [Telegram documentation](telegram-notify/README.md) for full security boundaries, credential configuration, receiving messages, and migration steps. The merge was verified with **Pi 1.1.0**: the Telegram Node suite and real Pi PTY integration tests used synthetic models and intercepted Telegram requests, not real-bot end-to-end verification.
 
-## 可选账户切换（独立开关）
+## Optional account switching (independent switch)
 
-在**当前窗口、当前对话**中切换 ChatGPT/Codex 认证，不需要退出或 resume。账户由个人配置显式提供，代码不预设账号名，也不扫描 shell 别名或本地认证目录。示例仅使用虚构配置：
+Switch ChatGPT/Codex authentication in the **current window and conversation**, without exiting or resuming. Accounts are explicitly supplied in personal configuration; the code presets no account names and scans neither shell aliases nor local authentication directories. This example uses only fictional configuration:
 
 ```json
 {
@@ -96,33 +113,33 @@ Avg 43.7 tok/s
 }
 ```
 
-`accounts` 每项包含自选的 `name` 和该账户的 Pi `agentDir`；认证文件为 `<agentDir>/auth.json`。目录支持绝对路径或 `~/`，不支持相对路径。名称可用字母、数字、下划线、点和连字符，最多 64 字符；名称必须唯一，`status` 是保留字。最多配置 64 个账户。开启时列表不能为空。
+Each `accounts` entry contains a chosen `name` and that account's Pi `agentDir`; its authentication file is `<agentDir>/auth.json`. Directories support absolute paths or `~/`, not relative paths. Names may contain letters, digits, underscores, dots, and hyphens, up to 64 characters. Names must be unique; `status` is reserved. At most 64 accounts can be configured. The list must be nonempty when enabled.
 
-执行 `/reload` 后可用：
+After `/reload`:
 
 ```text
-/switch-account          # 弹出账户选择列表，Esc 取消
-/switch-account work     # 按个人配置的名称切换，支持补全
-/switch-account status   # 查看当前 ChatGPT/Codex 账户
+/switch-account          # Open the account picker; Esc cancels
+/switch-account work     # Switch by configured name; supports completion
+/switch-account status   # Show the current ChatGPT/Codex account
 ```
 
-底栏只追加灰色名称（如 `work`），不带 Account 前缀，不替换 footer，也不影响测速或费用显示。
+The footer adds only a gray name (such as `work`), without an Account prefix. It does not replace the footer or affect speed or cost displays.
 
-- 改为 `"enabled": false` 并 `/reload`：关闭命令及账户显示，恢复启动账户的认证，不影响其他功能。缺少该配置段时默认关闭；非法配置警告并关闭。
-- **只切换 `openai-codex` 的认证**：对话、模型、思考级别、会话文件位置、agent 目录、AGENTS、插件、其他 provider 和环境变量保持不变。会话仍保存在启动配置的会话目录。使用非 Codex 模型时标注 `(Codex only)`，该模型的账户不受影响。
-- 名称是配置标签，不显示邮箱、访问令牌、refresh token 或真实账户 ID；未匹配配置的当前 agent 目录显示目录名。
-- 若正在生成、执行工具、重试或存在排队消息，拒绝切换。账号到限时先按 Esc 停止当前运行；切换不会自动重发失败消息，下一条消息才使用新账户。
-- 目标必须已有完整的 ChatGPT/Codex OAuth 登录信息；缺失、损坏或 API-key 类型的认证不允许切换，也不会为未登录账户创建文件。需要时先使用目标启动配置执行 `/login`。取消或切换失败时原选择不变。
-- 成功切换时重置已开启的缓存诊断比较基线，避免跨账户冷缓存误报；不记录账户 ID 或令牌。
-- **不复制或覆盖不同账户的认证**。OAuth 自动刷新仍由 Pi 自带的跨进程文件锁处理，刷新后的凭据写回选中账户自己的文件；切换后 `/login`、`/logout` 对 Codex 的操作也作用于该账户（其他 provider 仍是启动目录）。命令不请求模型或验证远端额度；过期令牌在下一次请求时由 Pi 正常刷新，失效的 refresh token 仍需重新登录。
-- 选择在普通 `/reload` 后保留，但不写入会话或磁盘。退出重启、`/new`、`/resume` 或 `/fork` 重建会话运行时后重新使用启动账户；关闭或移除扩展并 `/reload` 同样恢复启动账户。没有定时器或每-token 认证操作。
-- **兼容性边界**：认证／请求流程已在 Pi **1.1.0** 测试。Pi 当前没有公开的“在线更换凭据存储”接口，因此仅在 `account-switch/routing.ts` 中使用受结构检查保护的内部适配器；其余认证、流式请求和 OAuth 刷新仍走 Pi 自带逻辑。内部结构不兼容或存在 Codex 运行时 API-key 覆盖时拒绝启用／切换。升级 Pi 后应重跑 `npm test`。只在交互式 TUI 启用，print／JSON／RPC 不改认证。
+- Set `"enabled": false` and run `/reload` to disable the command and account display and restore the startup account's authentication, without affecting other features. A missing section defaults to disabled; invalid configuration warns and disables it.
+- **Only `openai-codex` authentication is switched**. The conversation, model, thinking level, session file location, agent directory, AGENTS, plugins, other providers, and environment variables stay unchanged. Sessions remain in the startup configuration's session directory. Non-Codex models show `(Codex only)`; their account is unaffected.
+- Names are configuration labels, not email addresses, access tokens, refresh tokens, or real account IDs. If the current agent directory matches no configured account, its directory name is shown.
+- Switching is refused during generation, tool execution, retries, or when messages are queued. If an account reaches a limit, press Esc to stop the current run first. Switching does not automatically resend a failed message; the next message uses the new account.
+- The target must already have complete ChatGPT/Codex OAuth login information. Missing, damaged, or API-key authentication cannot be selected, and no files are created for accounts that are not logged in. If needed, run `/login` using the target launch configuration first. Cancellation or switching failure leaves the original selection unchanged.
+- A successful switch resets the comparison baseline of enabled cache diagnostics to avoid false cold-cache warnings across accounts. Account IDs and tokens are not recorded.
+- **Authentication is not copied between accounts or overwritten across accounts**. OAuth auto-refresh still uses Pi's built-in cross-process file locking, and refreshed credentials are written back to the selected account's own file. After switching, `/login` and `/logout` for Codex also act on that account (other providers still use the startup directory). The command makes no model requests and does not check remote quota. Expired tokens are refreshed normally by Pi on the next request; an invalid refresh token still requires logging in again.
+- Selection survives an ordinary `/reload`, but is not written to the session or disk. Exiting/restarting, `/new`, `/resume`, or `/fork` rebuilds the session runtime and restores the startup account. Disabling or removing the extension and running `/reload` also restores it. There are no timers or per-token authentication operations.
+- **Compatibility boundary**: authentication/request flows were tested with Pi **1.1.0**. Pi currently has no public interface for replacing credential storage at runtime, so a structure-checked internal adapter is used only in `account-switch/routing.ts`; all other authentication, streaming requests, and OAuth refresh use Pi's built-in logic. Enabling/switching is refused if internal structures are incompatible or a Codex runtime API-key override exists. Rerun `npm test` after upgrading Pi. This feature is enabled only in the interactive TUI; print/JSON/RPC modes do not change authentication.
 
-## 可选缓存诊断（默认开关可配置）
+## Optional cache diagnostics (configurable default)
 
-诊断已集成在同一个扩展中，开关不影响测速；无需安装第二个扩展。仓库自带的 `config.json` **默认关闭**；配置文件缺失时按关闭处理。
+Diagnostics are integrated into the same extension; their switch does not affect speed, and no second extension is needed. The repository's `config.json` **disables diagnostics by default**; a missing configuration file is treated as disabled.
 
-在仓库外的个人配置文件中启用：
+Enable them in a personal configuration file outside the repository:
 
 ```json
 {
@@ -132,11 +149,11 @@ Avg 43.7 tok/s
 }
 ```
 
-- `false`：默认关闭；`true`：默认开启。必须使用 JSON 布尔值，不能写成带引号的字符串。
-- 修改后执行 `/reload` 或重启 Pi 生效，不需要修改 Pi 的 `settings.json`。
-- 使用上一节的配置优先级。多个实例可以共用个人配置，当前运行不会自动热更新。
+- `false`: off by default; `true`: on by default. Use a JSON boolean, not a quoted string.
+- Run `/reload` or restart Pi after changes. No changes to Pi's `settings.json` are needed.
+- Use the precedence in [Configuration and privacy](#configuration-and-privacy). Multiple instances can share personal configuration; a running instance does not automatically hot-reload it.
 
-当前实例仍可临时切换或查看状态：
+You can still temporarily toggle diagnostics or inspect status in the current instance:
 
 ```text
 /cache-diagnostics on
@@ -144,38 +161,38 @@ Avg 43.7 tok/s
 /cache-diagnostics off
 ```
 
-不带参数时查询状态，不自动切换。命令只临时切换当前实例，不改写 `config.json`；重新加载后按配置默认值启动。也可通过 `pi --cache-diagnostics` 显式开启，命令行开关优先于配置。文件缺失默认关闭；格式错误或无法读取时警告并将配置默认按关闭处理。`status` 同时显示当前状态、已加载的配置默认值及配置路径。
+Without arguments, the command queries status rather than toggling. It changes only the current instance and does not rewrite `config.json`; after reload, the configured default is used. You can also explicitly enable diagnostics with `pi --cache-diagnostics`; the command-line flag takes precedence over configuration. A missing file defaults to disabled; malformed or unreadable configuration warns and treats the configured default as disabled. `status` shows the current state, loaded configuration default, and configuration path.
 
-第一版只解析 OpenAI Responses 格式，包括 `openai-codex-responses`。每次观察到的请求保存简短元数据；出现读取归零、大幅下降、字段缺失或转换差异时，再保存前后请求的指纹对照。首次调用及已观察到的压缩／分支／模型转换边界重置比较基线，避免把正常冷启动当成归零事件。
+The first version parses only OpenAI Responses formats, including `openai-codex-responses`. It saves brief metadata for each observed request. When cache reads drop to zero, decrease sharply, fields are missing, or conversion differs, it additionally saves a before/after request fingerprint comparison. The first call and observed compaction/branch/model-change boundaries reset the comparison baseline to avoid flagging normal cold starts as zero-read events.
 
-- **只记录**：不注入提示词、不注册模型工具、不改请求参数，不新增保活、重试或模型调用；也不自动设置官方诊断参数。
-- **保护内容**：不保存对话、输出、工具参数正文、密钥或认证头。保存用量合法数值、字段存在性、响应 ID、参数白名单及每次启用独立的 HMAC 指纹。
-- **有界且隔离**：后台写日志并轮换；写入失败停用诊断，不中断模型请求。不在每个 token 到达时落盘或刷新底部。
-- **不是网络抓包**：指纹来自请求前钩子，原始用量来自 SDK 转换前的结构化事件；无法据此证明最终传输字节、物理连接复用、服务端缓存根因或订阅额度扣减。
+- **Recording only**: no prompt injection, model-tool registration, request-parameter changes, extra keep-alive, retries, or model calls. Official diagnostic parameters are not automatically set either.
+- **Content protection**: no conversations, output, tool-argument bodies, secrets, or authentication headers are saved. Saved data includes valid numeric usage, field presence, response IDs, allowlisted parameters, and HMAC fingerprints unique to each activation.
+- **Bounded and isolated**: logs are written in the background and rotated. Write failures disable diagnostics without interrupting model requests. No disk writes or footer refreshes occur on each token.
+- **Not packet capture**: fingerprints come from the pre-request hook, and raw usage comes from structured events before SDK conversion. They cannot prove final transmitted bytes, physical connection reuse, server-side cache root causes, or subscription quota deductions.
 
-默认日志根目录为 `~/.pi/agent/cache-diagnostics/`，自定义 Pi agent 目录会随 `getAgentDir()` 调整。每次启用／切换会话建独立 `capture-*` 目录，`status` 显示具体位置。可用 `PI_CACHE_DIAGNOSTICS_DIR` 指定其他目录。
+The default log root is `~/.pi/agent/cache-diagnostics/`; a custom Pi agent directory follows `getAgentDir()`. Each activation/session switch creates a separate `capture-*` directory, and `status` shows the exact location. Use `PI_CACHE_DIAGNOSTICS_DIR` to specify another directory.
 
-**个人配置开启诊断后，会持续在上述目录写入元数据日志（不含对话内容），旧目录不会自动清理；不需要时把 `enabledByDefault` 改为 `false` 并 `/reload`。** 详细字段、保存上限与证据边界见 [缓存诊断说明](cache-diagnostics/README.md)。
+**Enabling diagnostics in personal configuration continuously writes metadata logs (without conversation content) to that directory. Old directories are not automatically deleted. When no longer needed, set `enabledByDefault` to `false` and run `/reload`.** See the [cache diagnostics documentation](cache-diagnostics/README.md) for detailed fields, storage limits, and evidence boundaries.
 
-## 可选上下文费用对照（个人配置开关）
+## Optional context cost comparison (personal configuration switch)
 
-在底部再追加一个状态项 `context-cost`，用与 Pi 自带底栏相同的 dim 灰色，按**当前选中模型**对照两项背景输入费用（USD，Standard API 等价估计，不是实际账单）：
+Adds a `context-cost` status item using the same dim gray as Pi's built-in footer. It compares two background-input costs for the **currently selected model** (USD, Standard API-equivalent estimates, not an actual bill):
 
 ```text
 Cache read $0.8000 | Cold start $0.6250
 ```
 
-- **Cache read**：继续当前窗口时，把当前上下文估计全部按缓存读取计价。首版取 Pi 的 `getContextUsage().tokens` 作当前上下文 C，并近似 H≈T≈C：费率档位由下一次总输入 T 决定（超过某档阈值时整请求用该档），计费量是历史 H。C 可能含上次输出，不含编辑器里未发送的文本和新增工具开销，分档边界附近不精确。
-- **Cold start**：新开窗口加载固定背景（默认 50,000 token，可用 `startupTokens` 配置），全部按首次写缓存计价（不再叠加普通输入费）。背景本身超过分档阈值时同样按对应档计价。
-- 只比较背景输入：不含新输入、输出／推理、工具费、生成交接摘要和返工。不代表实际账单或订阅额度扣减，也不代表 Fast／Batch／Flex 等价格档。不给"建议重开"之类的结论。
-- **未知不显示为 $0**：上下文未知（例如压缩后、下一次有效回复前）显示 `—`，新窗口价格照常显示；0 是有效值。
-- **价格来源**：直接读取 Pi 的模型数据 `model.cost`（普通输入、缓存读取、缓存写入及 `tiers` 分档），分档规则与 Pi 的 `calculateCost` 一致：总输入超过的最高阈值对整请求生效。价格随 Pi 升级更新，本扩展不另存价格表。
-- **支持范围**：只计算 provider 为 `openai` 或 `openai-codex` 的模型；其他 provider 的价格数据常缺缓存单价，显示 `API price not configured`。
-- **OpenAI 数据中的 0**：缓存写入价为 0（GPT-6 之前的模型，写缓存不另收费）时，Cold start 按普通输入价计；缓存读取价或普通输入价为 0（如 pro 系列没有缓存折扣）、价格缺失或格式异常时不硬算，显示 `API price not configured`。
+- **Cache read**: prices the entire estimated current context as cache reads when continuing in the current window. The first version uses Pi's `getContextUsage().tokens` as current context C and approximates H≈T≈C: the price tier is determined by the next request's total input T (crossing a threshold applies that tier to the whole request), while the billed quantity is history H. C may include the previous output, but excludes unsent editor text and new tool overhead; it is imprecise near tier boundaries.
+- **Cold start**: prices loading fixed background in a new window (50,000 tokens by default, configurable with `startupTokens`) entirely as initial cache writes, without adding ordinary input charges. If that background exceeds a tier threshold, the corresponding tier also applies.
+- Compares background input only: excludes new input, output/reasoning, tool fees, generating handoff summaries, and rework. It does not represent an actual bill, subscription quota deductions, or Fast/Batch/Flex pricing. It makes no recommendations such as “start a new window.”
+- **Unknown is not shown as $0**: unknown context (for example, after compaction and before the next valid reply) displays `—`; the new-window price is still shown normally. Zero is a valid value.
+- **Price source**: reads Pi's model data `model.cost` directly (ordinary input, cache reads, cache writes, and `tiers`). Tier rules match Pi's `calculateCost`: the highest threshold exceeded by total input applies to the entire request. Prices update with Pi upgrades; this extension stores no separate price table.
+- **Supported scope**: calculates only for models whose provider is `openai` or `openai-codex`. Other providers often lack cache unit prices and display `API price not configured`.
+- **Zeros in OpenAI data**: if cache-write price is zero (models before GPT-6, where cache writes have no additional charge), Cold start uses the ordinary input price. If cache-read or ordinary input prices are zero (for example, pro models with no cache discount), or prices are missing or malformed, it does not force a calculation and displays `API price not configured`.
 
-默认严格跟随 Pi 的模型价格及分档。若自己的计费策略明确不使用长上下文分档，可在个人配置的 `contextCost.untieredModels` 中列出精确的 `provider/modelId`；代码不预设任何订阅特例，也不据此推断远端实际账单。
+By default, pricing and tiers strictly follow Pi's model data. If your own billing policy explicitly excludes long-context tiers, list exact `provider/modelId` values in personal configuration under `contextCost.untieredModels`. The code presets no subscription exceptions and does not infer actual remote bills from this setting.
 
-配置（仓库自带配置默认关闭；在个人配置中启用）：
+Configuration (disabled in repository defaults; enable in personal configuration):
 
 ```json
 {
@@ -187,31 +204,35 @@ Cache read $0.8000 | Cold start $0.6250
 }
 ```
 
-- `enabled`：JSON 布尔值。`false` 或缺少 `contextCost` 段时完全不注册事件。
-- `startupMode`：可省略，默认 `"cache-write"`；`"uncached-input"` 改为按普通冷输入计价（Astra $0.5000，6.1 Sol $0.1000）。底栏标签不变，仍显示 `Cold start`。
-- `startupTokens`：可省略，默认 `50000`；必须是正整数。底栏不显示这个数。
-- `untieredModels`：可省略，默认 `[]`；字符串列表，每项为精确的 `provider/modelId`，只对这些模型忽略分档。不支持通配符或自动检测订阅策略。
-- 格式错误时按关闭处理，并在 TUI 中警告一次。修改后 `/reload` 生效。
+- `enabled`: JSON boolean. `false` or a missing `contextCost` section registers no events at all.
+- `startupMode`: optional, default `"cache-write"`; `"uncached-input"` uses ordinary cold-input pricing instead (Astra $0.5000, 6.1 Sol $0.1000). The footer label remains `Cold start`.
+- `startupTokens`: optional, default `50000`; must be a positive integer. The footer does not display this number.
+- `untieredModels`: optional, default `[]`; a list of strings, each an exact `provider/modelId`. Tiers are ignored only for those models. Wildcards and automatic subscription-policy detection are not supported.
+- Malformed configuration disables the feature and warns once in the TUI. Changes take effect after `/reload`.
 
-只在 TUI 模式显示；Pi 没有主题切换事件，切换主题后灰色在下一次刷新时更新。会话开始／恢复／fork／reload、切换模型、每轮结束、压缩和树导航后本地重算，没有定时器、网络或模型请求。切换到未支持模型时立即替换旧金额；退出时只清除自己的状态项。
+Displayed only in TUI mode. Pi has no theme-change event, so after a theme change the gray color updates on the next refresh. It recalculates locally on session start/resume/fork/reload, model changes, each turn end, compaction, and tree navigation. There are no timers, network requests, or model requests. Switching to an unsupported model immediately replaces old amounts; on exit, it clears only its own status item.
 
-## 测试
+## Tests
 
-更名回归（Pi **1.1.0**）：完整 `npm test` **142/142 通过**，无失败或跳过；生产类型检查、Telegram fixture 类型检查、两套真实 Pi PTY 测试及本次修改的 Python 文件 Ruff／basedpyright 检查均通过。新增测试覆盖新包名、个人配置文件名与环境变量优先级；PTY 使用合成模型和拦截的 Telegram 请求，不代表真实 bot 端到端验证。
+Dual-measurement speed update (installed Pi **1.2.0**): `npm run typecheck` passed, and the full `npm test` run passed **153/153**, with **0 failures and 0 skips**. This update added **10 speed tests**. A targeted speed-command PTY smoke test with real Pi **1.2.0** also passed, verifying default overall, explicit selection, toggling without arguments, status, restoration of overall after reload, and no extra model requests when switching. It reused the existing synthetic fixture with deliberately zero output usage, so `--` was expected; it does not verify real API generation speed or numeric timing. The **two existing full PTY suites were not rerun**.
 
-底栏排序调整后，新增「测速 → TG → LSP」顺序回归测试，重新运行完整 `npm test` **143/143 通过**，生产类型检查通过；该次检查未重跑 PTY 套件。
+Speed boundary coverage includes overall/stream timing, repeated/missing pre-request hooks, valid final usage without deltas, failure/interruption/invalid usage/nonpositive durations, measurement commands and completion, redraws on switching, switching during requests, lifecycle resets, and non-TUI behavior. The Pi 1.1.0 results below are **historical verification records**, separate from the current update.
 
-`npm test` 需要 PATH 上已安装 Pi（`npm install -g @earendil-works/pi-coding-agent`），使用已安装 Pi 的加载器及 jiti 加载实际扩展，再用确定性事件及单调时钟验证统计；上下文费用对照另有纯计算（验收表、分档、可配置不分档策略、未知值）、配置解析和生命周期测试。测试不调用模型、不访问 API。账户切换测试使用临时合成凭据和已安装 Pi 的真实 ModelRuntime，覆盖认证路由、保持请求上下文／模型、并发 OAuth 刷新及正确写回、登录／登出、失败回滚、reload／关闭、非 TUI 和命令交互，不读取或改动真实账号。诊断测试只在临时目录写合成日志并清理，包含原始字段缺失／显式零、转换差异、异常前后对照、并发关联保护、默认关闭、动态订阅、权限／轮换、写失败及开启诊断时的测速回归。
+Rename regression (Pi **1.1.0**): the full `npm test` run passed **142/142**, with no failures or skips. Production type checking, Telegram fixture type checking, two real Pi PTY test suites, and Ruff/basedpyright checks for the Python files changed in that update all passed. New tests covered the new package name, personal configuration filename, and environment-variable precedence. PTY tests used synthetic models and intercepted Telegram requests, not real-bot end-to-end verification.
 
-合并后的 `npm test` 脚本还包含 `test/telegram-notify/*.test.mjs`，不能只运行原来的顶层 glob 而漏掉 Telegram 套件。也可直接运行完整套件：
+After the footer ordering adjustment, a “speed → TG → LSP” ordering regression test was added. A fresh full `npm test` run passed **143/143**, and production type checking passed. That verification did not rerun the PTY suites.
+
+`npm test` requires Pi installed on PATH (`npm install -g @earendil-works/pi-coding-agent`). It uses the installed Pi loader and jiti to load the actual extension, then verifies statistics with deterministic events and a monotonic clock. Context cost comparison also has pure-calculation tests (acceptance tables, tiers, configurable untiered policies, unknown values), configuration parsing, and lifecycle tests. Tests make no model calls or API requests. Account-switching tests use temporary synthetic credentials and the installed Pi's real ModelRuntime, covering authentication routing, preservation of request context/model, concurrent OAuth refresh and correct writeback, login/logout, failure rollback, reload/disabling, non-TUI behavior, and command interactions. They neither read nor modify real accounts. Diagnostics tests write synthetic logs only in temporary directories and clean them up; coverage includes missing raw fields/explicit zeros, conversion differences, before/after anomaly comparisons, concurrent correlation protection, disabled defaults, dynamic subscriptions, permissions/rotation, write failures, and speed regression with diagnostics enabled.
+
+The merged `npm test` script also includes `test/telegram-notify/*.test.mjs`; do not run only the original top-level glob and miss the Telegram suite. You can also run the complete suite directly:
 
 ```bash
 node --test test/*.test.mjs test/telegram-notify/*.test.mjs
 ```
 
-Pi **1.1.0** 下，Telegram 专项 Node 测试 **44/44 通过**，既有回归测试 **96/96 通过**；生产类型检查、TUI fixture 类型检查、两套真实 Pi PTY 集成测试以及 Python Ruff／basedpyright 检查均通过。这里分别记录已完成的验证，不将其声明为完整合并套件的一次运行结果。Telegram 测试覆盖关闭／缺少配置时零注册、非法配置仅有一次 TUI 警告 handler、关闭时不读凭据／不访问网络，以及窗口初始 OFF、发送与取消、授权、路由和集成回归。
+With Pi **1.1.0**, the Telegram-specific Node tests passed **44/44**, and the existing regression tests passed **96/96**. Production type checking, TUI fixture type checking, two real Pi PTY integration suites, and Python Ruff/basedpyright checks all passed. These are separate completed verification records, not a claim that they came from one full merged-suite run. Telegram tests cover zero registration when disabled/configuration is missing, a single TUI warning handler for invalid configuration, no credential reads/network access when disabled, initial window OFF state, sending and cancellation, authorization, routing, and integration regressions.
 
-可选的真实 Pi PTY 与 fixture 检查（不包含在 `npm test` 中）：
+Optional real Pi PTY and fixture checks (not included in `npm test`):
 
 ```bash
 node test/telegram-notify/typecheck.mjs
@@ -221,9 +242,9 @@ ruff check test/telegram-notify/tui-smoke.py test/telegram-notify/tui-inbound.py
 basedpyright --level error test/telegram-notify/tui-smoke.py test/telegram-notify/tui-inbound.py
 ```
 
-PTY 测试需要 Linux、`pi`、`node` 和 `flock`，加载集成主入口，使用隔离临时配置、合成模型和拦截的 Telegram 请求；不调用付费模型、不发真实 Telegram 消息。验证范围不包含新集成的真实 bot 端到端测试；这些自动化测试不会修改个人凭据、符号链接或配置，手动迁移操作不属于测试范围。详细范围见 [Telegram 验证](telegram-notify/README.md#验证) 和 [测试说明](test/telegram-notify/README.md)。
+PTY tests require Linux, `pi`, `node`, and `flock`. They load the integrated main entry point using isolated temporary configuration, synthetic models, and intercepted Telegram requests. They call no paid models and send no real Telegram messages. Their scope does not include real-bot end-to-end testing of the new integration. These automated tests do not modify personal credentials, symbolic links, or configuration; manual migration is outside their scope. See [Telegram verification](telegram-notify/README.md#验证) and the [test documentation](test/telegram-notify/README.md) for details.
 
-`npm run typecheck` 验证本扩展类型，从 `node_modules` 解析 Pi 与 Node 类型。先执行 `npm install` 安装开发依赖；也可以不下载，直接链接全局安装的 Pi：
+`npm run typecheck` checks this extension's types, resolving Pi and Node types from `node_modules`. First run `npm install` to install development dependencies. Alternatively, link the globally installed Pi without downloading:
 
 ```bash
 mkdir -p node_modules/@earendil-works
