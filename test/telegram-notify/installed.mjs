@@ -19,7 +19,10 @@ if (piPackage.name !== "@earendil-works/pi-coding-agent") {
 }
 export const hostRequire = createRequire(join(dir, "package.json"));
 const { createJiti } = hostRequire("jiti");
-export const alias = { "@earendil-works/pi-coding-agent": join(dir, "dist/index.js") };
+export const alias = {
+  "@earendil-works/pi-coding-agent": join(dir, "dist/index.js"),
+  "@earendil-works/pi-tui": join(dir, "node_modules/@earendil-works/pi-tui/dist/index.js"),
+};
 export const jiti = createJiti(import.meta.url, { alias });
 export const integratedPath = new URL("../../index.ts", import.meta.url).pathname;
 export const telegramPath = new URL("../../telegram-notify/index.ts", import.meta.url).pathname;

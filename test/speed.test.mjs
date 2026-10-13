@@ -19,7 +19,10 @@ while (!existsSync(join(root, "package.json"))) {
 }
 const hostRequire = createRequire(join(root, "package.json"));
 const { createJiti } = hostRequire("jiti");
-const factory = (await createJiti(import.meta.url, { alias: { "@earendil-works/pi-coding-agent": join(root, "dist/index.js") } }).import(new URL("../index.ts", import.meta.url).pathname)).default;
+const factory = (await createJiti(import.meta.url, { alias: {
+  "@earendil-works/pi-coding-agent": join(root, "dist/index.js"),
+  "@earendil-works/pi-tui": join(root, "node_modules/@earendil-works/pi-tui/dist/index.js"),
+} }).import(new URL("../index.ts", import.meta.url).pathname)).default;
 
 test("installed Pi loader accepts extension with no model tools and an opt-in diagnostic command", async () => {
   const { loadExtensions } = await import(pathToFileURL(join(root, "dist/core/extensions/loader.js")).href);

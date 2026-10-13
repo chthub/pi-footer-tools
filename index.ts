@@ -1,7 +1,7 @@
 /**
  * Pi footer tools: per-model-request speed and opt-in companion features.
  * Speed stays allocation-light; diagnostics, context-cost comparison,
- * live Codex account switching and Telegram are independently switched in config.
+ * live Codex account switching, Telegram and the sticky note are independently switched in config.
  * Speed itself uses no tokenizer, extra model requests, transcript writes or custom footer.
  * Opt-in Telegram replies become normal user messages and can start model runs.
  */
@@ -10,6 +10,7 @@ import { registerCacheDiagnostics } from "./cache-diagnostics/index.ts";
 import { registerContextCost } from "./context-cost/index.ts";
 import { registerAccountSwitch } from "./account-switch/index.ts";
 import { registerTelegramNotify } from "./telegram-notify/index.ts";
+import { registerStickyNote } from "./sticky-note/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "footer-tools.token-speed";
@@ -28,6 +29,7 @@ export default function footerTools(pi: ExtensionAPI) {
   registerContextCost(pi);
   registerAccountSwitch(pi, { onSwitch: diagnostics.accountChanged });
   registerTelegramNotify(pi);
+  registerStickyNote(pi);
   let active: Measurement | undefined;
   let mode: SpeedMode = "overall";
   let lastResult: SpeedResult | undefined;

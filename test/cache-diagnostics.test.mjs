@@ -13,7 +13,10 @@ process.env.PI_FOOTER_TOOLS_CONFIG = new URL("../config.json", import.meta.url).
 let host = dirname(realpathSync(join(dirname(process.execPath), "pi")));
 while (!existsSync(join(host, "package.json"))) host = dirname(host);
 const { createJiti } = createRequire(join(host, "package.json"))("jiti");
-const jiti = createJiti(import.meta.url, { alias: { "@earendil-works/pi-coding-agent": join(host, "dist/index.js") } });
+const jiti = createJiti(import.meta.url, { alias: {
+  "@earendil-works/pi-coding-agent": join(host, "dist/index.js"),
+  "@earendil-works/pi-tui": join(host, "node_modules/@earendil-works/pi-tui/dist/index.js"),
+} });
 const base = new URL("../cache-diagnostics/", import.meta.url).pathname;
 const { Recorder, rawUsage } = await jiti.import(join(base, "core.ts"));
 const { JsonlWriter } = await jiti.import(join(base, "writer.ts"));

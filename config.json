@@ -11,5 +11,8 @@
   },
   "telegramNotify": {
     "enabled": false
+  },
+  "stickyNote": {
+    "enabled": false
   }
 }

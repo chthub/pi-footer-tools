@@ -9,6 +9,7 @@
 - **Context cost comparison**: optional; displays estimated API-equivalent costs for cache reads and cold starts.
 - **Cache diagnostics**: optional; provides status commands and records restricted metadata.
 - **[Telegram notifications/replies](telegram-notify/README.md)**: optional; displays the window's toggle state and supports completion notifications and authorized replies.
+- **Task and note**: optional; pins the latest task-like prompt (folded, click to expand) and your own note above the editor.
 
 Each optional feature has its own configuration switch. All are disabled by default in the repository. Telegram was merged from `pi-telegram-notify` into this repository; only `telegram-notify/` is maintained going forward.
 
@@ -212,7 +213,47 @@ Configuration (disabled in repository defaults; enable in personal configuration
 
 Displayed only in TUI mode. Pi has no theme-change event, so after a theme change the gray color updates on the next refresh. It recalculates locally on session start/resume/fork/reload, model changes, each turn end, compaction, and tree navigation. There are no timers, network requests, or model requests. Switching to an unsupported model immediately replaces old amounts; on exit, it clears only its own status item.
 
+## Optional task and note (personal configuration switch)
+
+Once tool calls scroll by, the prompt that assigned the task quickly leaves the screen. When enabled, two kinds of content stay **above the editor**; no status summary or status symbols are shown:
+
+```text
+ 任务 ▸ 把 telegram-notify 的回复路由改成按 session id 匹配，旧的按 chat id 的逻辑保留做 fa…  14:20
+ 备忘   等它改完 → 手机上发条回复验证
+        别合并，先给 A 看
+```
+
+- **Task (任务)**: the latest user prompt on the current branch that is **not an acknowledgement**; length is not considered. Acknowledgements come from a fixed lexicon only: 继续, 同意, 可以, 确认, 批准, 同意继续, 继续下一步, 继续执行, 继续推进, 继续做, 自行继续推进, 接着, 好, 好的, 行, 嗯, 对, 是的, 没问题, ok, okay, yes, y, go, go ahead, continue, proceed, lgtm. Case, whitespace and punctuation are ignored, and leading "那你/行啊/好的/那/你/行/好/嗯" and trailing "一下/吧/啊/呀/了" are stripped first, so "行，那你继续吧" and "可以了" also count; "你好" does not. Every other prompt (including "提交", "commit and push", "继续t12") becomes the task line; when the branch has only acknowledgements, no task line is shown. `/skill:` invocations show only the command and the text after it; fenced code becomes `[代码 N 行，已省略]`. Folded to one line by default with the send time on the right; **click** the task line to expand the full text, click again to fold; a new task folds again. Clicking needs fullscreen mode (Pi's default); in regular mode the terminal owns the mouse, so use `/note task`.
+- **Note (备忘)**: your own multi-line text, always shown in full, never folded, no line limit; **click** any note line to open the editor.
+
+| Action | How |
+|---|---|
+| Edit the note | Click the note, `Alt+M` or `/note`: opens a multi-line editor prefilled with the current note (empty when there is none); Enter saves, Shift+Enter/Ctrl+J inserts a newline, Esc cancels |
+| Quick set | `/note some text` |
+| Delete the note | `/note clear`, or clear the editor and save |
+| Undo | `/note undo` (repeatable) |
+| Change the task line | `/note pin`: pick one of the latest 12 prompts; the first option "自动" removes the pin and returns to the lexicon rule |
+| Expand/fold the task | Click the task line, or `/note task` |
+
+`clear`, `undo`, `pin` and `task` are reserved subcommands; use the editor for a note that is exactly one of these words.
+
+Notes and pins are appended as custom session entries (`footer-tools.sticky-note`), **never sent to the model** and never rewritten; `/resume`, reload and fork restore them by replaying the current branch, and `/tree` to an earlier node shows the note as it was there. No network or model requests and no timers; TUI only.
+
+Configuration (off in the repository config; enable it in your personal config):
+
+```json
+{
+  "stickyNote": {
+    "enabled": true
+  }
+}
+```
+
+`enabled` must be a JSON boolean; with `false` or no `stickyNote` section, no events, commands or shortcuts are registered. Malformed configuration is treated as off with one TUI warning. Run `/reload` after changes.
+
 ## Tests
+
+Task and note (Pi **1.2.0**): `npm run typecheck` passes and the full `npm test` passes **161/161**, with 8 new tests (acknowledgement lexicon, prompt cleanup, anchor and pin, entry replay, render widths, configuration, lifecycle and commands). A real Pi PTY smoke run with the existing synthetic fixture also passed: folded task line, `Alt+M` multi-line edit, click to expand the task, click the note to edit it, `/note task` and `/note clear`; that smoke script is not part of the repository.
 
 Dual-measurement speed update (installed Pi **1.2.0**): `npm run typecheck` passed, and the full `npm test` run passed **153/153**, with **0 failures and 0 skips**. This update added **10 speed tests**. A targeted speed-command PTY smoke test with real Pi **1.2.0** also passed, verifying default overall, explicit selection, toggling without arguments, status, restoration of overall after reload, and no extra model requests when switching. It reused the existing synthetic fixture with deliberately zero output usage, so `--` was expected; it does not verify real API generation speed or numeric timing. The **two existing full PTY suites were not rerun**.
 

@@ -7,6 +7,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "skipLibCheck": true,
+    "paths": {
+      "@earendil-works/pi-tui": ["./node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.d.ts"]
+    },
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@earendil-works/pi-coding-agent/node_modules/@types"
@@ -21,6 +24,7 @@
     "cache-diagnostics/**/*.ts",
     "context-cost/**/*.ts",
     "account-switch/**/*.ts",
-    "telegram-notify/**/*.ts"
+    "telegram-notify/**/*.ts",
+    "sticky-note/**/*.ts"
   ]
 }

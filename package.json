@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi footer tools: token speed, opt-in account switching, context costs, cache diagnostics and Telegram",
+  "description": "Pi footer tools: token speed, opt-in account switching, context costs, cache diagnostics, Telegram and a sticky note",
   "keywords": [
     "pi-package"
   ],
@@ -13,7 +13,8 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs test/telegram-notify/*.test.mjs",
