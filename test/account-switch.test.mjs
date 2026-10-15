@@ -16,7 +16,7 @@ const { loadAccountSwitchConfig } = await loader.import(new URL("../account-swit
 const { resolveConfigPath, DEFAULT_CONFIG_PATH } = await loader.import(new URL("../config-path.ts", import.meta.url).pathname);
 const { attachRouting, accountPath, accountName } = await loader.import(new URL("../account-switch/routing.ts", import.meta.url).pathname);
 const { registerAccountSwitch } = await loader.import(new URL("../account-switch/index.ts", import.meta.url).pathname);
-const { ModelRuntime, ModelRegistry } = await import(pathToFileURL(join(root, "dist/index.js")).href);
+const { ModelRuntime, ModelRegistry, createEventBus } = await import(pathToFileURL(join(root, "dist/index.js")).href);
 const PROVIDER = "openai-codex";
 const ACCOUNT_NAMES = ["default", "work", "backup", "personal"];
 const profiles = home => ACCOUNT_NAMES.map(name => ({ name, agentDir: join(home, "profiles", name) }));
@@ -52,7 +52,7 @@ function harness(f, registry, mode = "tui") {
       select: async (title, entries) => typeof choice === "function" ? choice(title, entries) : choice,
     },
   };
-  registerAccountSwitch({ on(name, fn) { handlers.set(name, fn); }, registerCommand(name, command) { commands.set(name, command); } }, f);
+  registerAccountSwitch({ events: createEventBus(), on(name, fn) { handlers.set(name, fn); }, registerCommand(name, command) { commands.set(name, command); } }, f);
   return {
     ctx, statuses, notices, handlers, commands,
     fire: (name, event = {}) => handlers.get(name)?.(event, ctx),

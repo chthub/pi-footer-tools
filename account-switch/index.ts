@@ -3,6 +3,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil
 import { loadAccountSwitchConfig } from "./config.ts";
 import { resolveConfigPath } from "../config-path.ts";
 import { PROVIDER, attachRouting } from "./routing.ts";
+import { createAccountChannel, registerChildLaunch } from "./channel.ts";
 
 const STATUS_KEY = "account-switch";
 export interface AccountSwitchOptions {
@@ -25,6 +26,8 @@ export function registerAccountSwitch(pi: ExtensionAPI, options: AccountSwitchOp
   if (!config.enabled) return;
 
   let routing: ReturnType<typeof attachRouting> | undefined;
+  let channel: ReturnType<typeof createAccountChannel> | undefined;
+  let unsubscribe: (() => void) | undefined;
   let busy = false;
   let shown: string | undefined;
   function show(ctx: ExtensionContext, provider = ctx.model?.provider) {
@@ -39,9 +42,14 @@ export function registerAccountSwitch(pi: ExtensionAPI, options: AccountSwitchOp
     if (ctx.mode !== "tui") return;
     try {
       routing = attachRouting(ctx.modelRegistry, options.agentDir ?? getAgentDir(), config.accounts);
+      channel = createAccountChannel(routing.selection);
+      unsubscribe = registerChildLaunch(pi, () => channel?.path);
       show(ctx);
     } catch {
+      routing?.detach();
       routing = undefined;
+      channel?.close();
+      channel = undefined;
       show(ctx);
       ctx.ui.notify("Account switch: 当前 Pi 认证存储不兼容或存在 Codex 运行时密钥，未启用切换。", "warning");
     }
@@ -51,6 +59,10 @@ export function registerAccountSwitch(pi: ExtensionAPI, options: AccountSwitchOp
   });
   pi.on("agent_end", (_event, ctx) => show(ctx));
   pi.on("session_shutdown", (event, ctx) => {
+    unsubscribe?.();
+    unsubscribe = undefined;
+    channel?.close();
+    channel = undefined;
     routing?.detach(event.reason === "reload");
     routing = undefined;
     busy = false;
@@ -98,11 +110,15 @@ export function registerAccountSwitch(pi: ExtensionAPI, options: AccountSwitchOp
           ctx.ui.notify("会话状态已变化，未切换账户。", "warning");
           return;
         }
-        await controller.switchTo(name, () => controller === routing && ctx.isIdle() && !ctx.hasPendingMessages());
+        await controller.switchTo(name, () => controller === routing && ctx.isIdle() && !ctx.hasPendingMessages(),
+          selection => {
+            if (!channel) throw new Error("missing-account-channel");
+            channel.publish(selection);
+          });
         show(ctx);
         // An optional observer must not turn a successful auth switch into a failure.
         try { options.onSwitch?.(ctx); } catch { /* Auth routing is already committed. */ }
-        ctx.ui.notify(`已切换到 ${name}，当前对话和模型保留；下一次请求使用此账户。`, "info");
+        ctx.ui.notify(`已切换到 ${name}，当前对话和模型保留；主代理及已联动子代理的下一次请求使用此账户。正在进行的请求不重发。`, "info");
       } catch {
         // Auth/storage/provider error messages can contain sensitive data.
         ctx.ui.notify("切换失败，原账户保留。请确认目标账户已登录 ChatGPT/Codex、auth.json 可读，且当前请求已停止。", "error");

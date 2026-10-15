@@ -11,14 +11,31 @@ const STATE_KEY = Symbol.for("pi-footer-tools.account-switch.routing.v1");
 interface RuntimeCredentials {
   store: CredentialStore;
   hasRuntimeApiKey(provider: string): boolean;
+  removeRuntimeApiKey?(provider: string): void;
   [STATE_KEY]?: RoutingState;
+}
+export interface AccountSelection {
+  name: string;
+  authPath: string;
 }
 interface RoutingState {
   base: CredentialStore;
   selected: CredentialStore;
+  selectedPath: string;
   name: string;
   route: CredentialStore;
   owner?: object;
+  pending?: { owner: object; selected: CredentialStore; selectedPath: string; name: string };
+}
+
+/** Never let a new runtime adopt an uncommitted selection from an older owner. */
+function rollbackPending(state: RoutingState) {
+  if (!state.pending) return;
+  const previous = state.pending;
+  state.selected = previous.selected;
+  state.selectedPath = previous.selectedPath;
+  state.name = previous.name;
+  state.pending = undefined;
 }
 
 function isStore(value: unknown): value is CredentialStore {
@@ -33,13 +50,13 @@ function isStore(value: unknown): value is CredentialStore {
  * Do not copy tokens or patch authentication/stream methods: Pi retains its own
  * cross-process OAuth refresh lock and persists refresh/login to the selected file.
  */
-function runtimeCredentials(registry: ModelRegistry): RuntimeCredentials {
+function runtimeCredentials(registry: ModelRegistry, allowOverride = false): RuntimeCredentials {
   const runtime = (registry as unknown as { runtime?: { credentials?: unknown } }).runtime;
   const value = runtime?.credentials;
   if (typeof value !== "object" || value === null) throw new Error("unsupported-runtime");
   const credentials = value as RuntimeCredentials;
   if (!isStore(credentials.store) || typeof credentials.hasRuntimeApiKey !== "function") throw new Error("unsupported-runtime");
-  if (credentials.hasRuntimeApiKey(PROVIDER)) throw new Error("runtime-api-key");
+  if (!allowOverride && credentials.hasRuntimeApiKey(PROVIDER)) throw new Error("runtime-api-key");
   return credentials;
 }
 
@@ -80,12 +97,15 @@ export function attachRouting(registry: ModelRegistry, agentDir: string, account
       },
     };
     state = {
-      base, selected: base, route,
+      base, selected: base, route, selectedPath: authPath ?? join(agentDir, "auth.json"),
       name: accountName(authPath ? dirname(authPath) : agentDir, accounts),
     };
     credentials[STATE_KEY] = state;
   }
   const current = state;
+  rollbackPending(current);
+  // An ordinary reload may adopt state created by the previous extension version.
+  current.selectedPath ??= (current.selected as unknown as { authPath?: string }).authPath ?? join(agentDir, "auth.json");
   const factory = current.base.constructor as unknown as { create?: (path: string) => CredentialStore };
   if (typeof factory.create !== "function") throw new Error("unsupported-storage");
   current.owner = owner;
@@ -93,8 +113,9 @@ export function attachRouting(registry: ModelRegistry, agentDir: string, account
 
   return {
     get name() { return credentials.hasRuntimeApiKey(PROVIDER) ? "runtime-key" : current.name; },
-    async switchTo(name: string, canCommit = () => true) {
-      if (credentials.store !== current.route || current.owner !== owner) throw new Error("store-changed");
+    get selection(): AccountSelection { return { name: current.name, authPath: current.selectedPath }; },
+    async switchTo(name: string, canCommit = () => true, publish?: (selection: AccountSelection) => void) {
+      if (credentials.store !== current.route || current.owner !== owner || current.pending) throw new Error("store-changed");
       if (credentials.hasRuntimeApiKey(PROVIDER)) throw new Error("runtime-api-key");
       const profile = accounts.find(value => value.name === name);
       if (!profile) throw new Error("unknown-account");
@@ -110,25 +131,83 @@ export function attachRouting(registry: ModelRegistry, agentDir: string, account
         || !Number.isFinite(credential.expires) || credential.expires <= 0
         || typeof credential.accountId !== "string" || !credential.accountId) throw new Error("missing-oauth");
       if (!canCommit() || credentials.store !== current.route || current.owner !== owner) throw new Error("session-changed");
-      const previous = { selected: current.selected, name: current.name };
+      const transaction = { owner, selected: current.selected, name: current.name, selectedPath: current.selectedPath };
+      current.pending = transaction;
       current.selected = target;
+      current.selectedPath = path;
       current.name = name;
       try {
         const result = await registry.refresh({ allowNetwork: false, providers: [PROVIDER] });
-        if (result.aborted || result.errors.size) throw new Error("refresh-failed");
+        if (result.aborted || result.errors.size || !canCommit()
+          || credentials.store !== current.route || current.owner !== owner) throw new Error("refresh-failed");
+        // Publish last: a failed atomic channel write must roll back the main route too.
+        publish?.({ name, authPath: path });
+        current.pending = undefined;
       } catch {
-        current.selected = previous.selected;
-        current.name = previous.name;
-        // Restore the auth/model snapshot too; do not expose raw provider errors.
-        await registry.refresh({ allowNetwork: false, providers: [PROVIDER] }).catch(() => {});
+        if (current.pending === transaction) {
+          rollbackPending(current);
+          // A stale owner must not roll back a newer runtime's committed route.
+          await registry.refresh({ allowNetwork: false, providers: [PROVIDER] }).catch(() => {});
+        }
         throw new Error("refresh-failed");
       }
     },
     detach(preserveForReload = false) {
       if (current.owner !== owner) return;
+      rollbackPending(current);
       if (credentials.store === current.route) credentials.store = current.base;
       current.owner = undefined;
       if (!preserveForReload) delete credentials[STATE_KEY];
     },
   };
+}
+
+/**
+ * A child resolves the parent's current selection at each credential operation.
+ * Capture a concrete store BEFORE entering it: an OAuth refresh holds that
+ * store's file lock and writes back there even if the parent switches meanwhile.
+ * In-flight HTTP requests already have their token and are never restarted.
+ */
+export function attachFollowingRouting(registry: ModelRegistry, follow: () => AccountSelection) {
+  const credentials = runtimeCredentials(registry, true);
+  const base = credentials.store;
+  // Install denial BEFORE validating the channel/factory. Pi logs lifecycle
+  // errors and defers shutdown, so leaving launch credentials active is unsafe.
+  const deny = () => { throw new Error("Codex account synchronization unavailable; reload the parent window."); };
+  credentials.store = {
+    read: (provider, options) => provider === PROVIDER ? deny() : base.read(provider, options),
+    modify: (provider, fn, options) => provider === PROVIDER ? deny() : base.modify(provider, fn, options),
+    delete: (provider, options) => provider === PROVIDER ? deny() : base.delete(provider, options),
+    list: async options => (await base.list(options)).filter(entry => entry.providerId !== PROVIDER),
+  };
+  if (credentials.hasRuntimeApiKey(PROVIDER)) {
+    credentials.removeRuntimeApiKey?.(PROVIDER);
+    throw new Error("runtime-api-key");
+  }
+  const factory = base.constructor as unknown as { create?: (path: string) => CredentialStore };
+  if (typeof factory.create !== "function") throw new Error("unsupported-storage");
+  let cached: { path: string; store: CredentialStore } | undefined;
+  const chosen = () => {
+    if (credentials.hasRuntimeApiKey(PROVIDER)) throw new Error("runtime-api-key");
+    const { authPath } = follow();
+    if (cached?.path !== authPath) {
+      const store = factory.create!(authPath);
+      if (!isStore(store)) throw new Error("unsupported-storage");
+      cached = { path: authPath, store };
+    }
+    return cached.store;
+  };
+  chosen(); // Refuse to attach to an invalid or missing parent channel.
+  const route: CredentialStore = {
+    read: (provider, options) => (provider === PROVIDER ? chosen() : base).read(provider, options),
+    modify: (provider, fn, options) => (provider === PROVIDER ? chosen() : base).modify(provider, fn, options),
+    delete: (provider, options) => (provider === PROVIDER ? chosen() : base).delete(provider, options),
+    list: async options => {
+      const selected = chosen();
+      const [original, entries] = await Promise.all([base.list(options), selected.list(options)]);
+      return [...original.filter(entry => entry.providerId !== PROVIDER), ...entries.filter(entry => entry.providerId === PROVIDER)];
+    },
+  };
+  credentials.store = route;
+  return { detach() { if (credentials.store === route) credentials.store = base; } };
 }
