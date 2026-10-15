@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import type { Component, TUI, TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { loadStickyNoteConfig } from "./config.ts";
 import { resolveConfigPath } from "../config-path.ts";
+import { scrollToPrompt } from "./navigation.ts";
 import {
   NOTE_ENTRY, cleanNote, cleanPrompt, findAnchor, formatTime, isTaskPrompt, messageText, renderView, replay, userPrompts,
   type NoteOp, type NoteState, type Prompt, type View,
@@ -9,7 +10,7 @@ import {
 
 const WIDGET_KEY = "footer-tools.sticky-note";
 const SHORTCUT = "alt+m";
-const SUBCOMMANDS = ["clear", "undo", "pin", "task"];
+const SUBCOMMANDS = ["clear", "undo", "pin", "task", "jump"];
 const PIN_CHOICES = 12;
 
 export interface StickyNoteOptions { configPath?: string }
@@ -21,7 +22,7 @@ class StickyNoteView implements Component {
   constructor(
     private readonly view: View,
     private readonly theme: Theme,
-    private readonly toggle: () => void,
+    private readonly jumpToPrompt: () => void,
     private readonly editNote: () => void,
   ) {}
 
@@ -36,9 +37,9 @@ class StickyNoteView implements Component {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.type !== "click" || event.button !== "left" || event.y >= this.rows) return undefined;
-    // Task rows fold/unfold; note rows open the note editor.
-    if (event.y < this.taskRows) this.toggle();
+    if (event.type !== "click" || event.button !== "left" || event.y < 0 || event.y >= this.rows) return undefined;
+    // Task rows jump to their source prompt; note rows open the note editor.
+    if (event.y < this.taskRows) this.jumpToPrompt();
     else this.editNote();
     return { handled: true, render: true };
   }
@@ -47,7 +48,7 @@ class StickyNoteView implements Component {
 }
 
 /**
- * Pinned above the editor: the latest non-acknowledgement prompt (folded, click to expand)
+ * Pinned above the editor: the latest non-acknowledgement prompt (click to jump to its source)
  * and a free-form note (click to edit).
  * Note edits are custom entries, so they follow /tree branches and never enter model context.
  */
@@ -67,7 +68,7 @@ export function registerStickyNote(pi: ExtensionAPI, options: StickyNoteOptions 
   let state: NoteState = { note: "", history: [] };
   let prompts: Prompt[] = [];
   let mounted: TUI | undefined;
-  /** Latest TUI context, so a click (which carries none) can open the editor. */
+  /** Latest TUI context, so a click can locate its source prompt or open the note editor. */
   let uiCtx: ExtensionContext | undefined;
   let editing = false;
 
@@ -89,10 +90,9 @@ export function registerStickyNote(pi: ExtensionAPI, options: StickyNoteOptions 
     } else if (visible) {
       ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
         mounted = tui;
-        return new StickyNoteView(view, theme, () => {
-          view.expanded = !view.expanded;
-          tui.requestRender();
-        }, () => { if (uiCtx) void edit(uiCtx); });
+        return new StickyNoteView(view, theme,
+          () => { if (uiCtx) jump(uiCtx); },
+          () => { if (uiCtx) void edit(uiCtx); });
       });
     } else if (mounted) {
       ctx.ui.setWidget(WIDGET_KEY, undefined);
@@ -108,6 +108,18 @@ export function registerStickyNote(pi: ExtensionAPI, options: StickyNoteOptions 
     view.note = state.note;
     setAnchor(findAnchor(prompts, state.pinnedId));
     show(ctx);
+  }
+
+  function jump(ctx: ExtensionContext) {
+    if (ctx.mode !== "tui") return;
+    if (!view.anchor) {
+      ctx.ui.notify("当前没有任务行", "info");
+      return;
+    }
+    const result = mounted ? scrollToPrompt(mounted, view.anchor, ctx.sessionManager.getBranch()) : "unsupported";
+    if (result === "unsupported") ctx.ui.notify("当前界面不支持定位 prompt；请使用兼容的 Pi fullscreen 模式。", "warning");
+    else if (result === "pending") ctx.ui.notify("这条 prompt 尚未保存，请稍后再试。", "info");
+    else if (result === "missing") ctx.ui.notify("暂时无法安全定位对应 prompt：原文可能已被压缩，或对话仍在更新，请稍后再试。未改变会话或分支。", "warning");
   }
 
   function record(op: NoteOp, ctx: ExtensionContext) {
@@ -159,7 +171,7 @@ export function registerStickyNote(pi: ExtensionAPI, options: StickyNoteOptions 
   });
 
   pi.registerCommand("note", {
-    description: "Sticky note: /note [text|clear|undo|pin|task]; no argument opens the editor",
+    description: "Sticky note: /note [text|clear|undo|pin|task|jump]; jump scrolls to the displayed task prompt",
     getArgumentCompletions: (prefix) => {
       const options = SUBCOMMANDS.filter(value => value.startsWith(prefix));
       return options.length ? options.map(value => ({ value, label: value })) : null;
@@ -175,6 +187,7 @@ export function registerStickyNote(pi: ExtensionAPI, options: StickyNoteOptions 
         return;
       }
       if (text === "pin") return pin(ctx);
+      if (text === "jump") return jump(ctx);
       if (text === "task") {
         if (!view.anchor) ctx.ui.notify("当前没有任务行", "info");
         else {

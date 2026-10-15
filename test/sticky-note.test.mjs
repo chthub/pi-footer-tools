@@ -78,13 +78,13 @@ test("render: folded task is one row with time; expanded wraps; note is never fo
   const noteText = Array.from({ length: 12 }, (_, i) => `第 ${i + 1} 行`).join("\n");
   const folded = core.renderView({ anchor, note: noteText, expanded: false }, 60, plain, now);
   assert.equal(folded.taskRows, 1);
-  assert.match(folded.lines[0], /^ 任务 ▸ 把 telegram.*…\s+14:20$/);
+  assert.match(folded.lines[0], /^ 任务 ↗ 把 telegram.*…\s+14:20$/);
   assert.equal(folded.lines.length, 13, "all 12 note lines stay visible");
   assert.match(folded.lines[1], /^ 备忘   第 1 行$/);
   assert.match(folded.lines[2], /^ {8}第 2 行$/);
   const open = core.renderView({ anchor, note: "", expanded: true }, 60, plain, now);
   assert.ok(open.taskRows > 2);
-  assert.match(open.lines[0], /^ 任务 ▾ .*14:20$/);
+  assert.match(open.lines[0], /^ 任务 ↗ .*14:20$/);
   assert.ok(open.lines.join("").includes("补测试"));
   for (const width of [20, 40, 60, 120]) {
     for (const line of core.renderView({ anchor, note: noteText, expanded: true }, width, plain, now).lines) {
@@ -114,7 +114,7 @@ test("config: off by default, explicit boolean only, malformed fails closed", ()
   }
 });
 
-function harness() {
+function harness(mode = "tui") {
   const file = configFile({ stickyNote: { enabled: true } });
   const handlers = new Map();
   const commands = new Map();
@@ -126,7 +126,7 @@ function harness() {
   const theme = { fg: (_color, text) => text };
   let component;
   const ctx = {
-    mode: "tui",
+    mode,
     sessionManager: { getBranch: () => [...branch] },
     ui: {
       setWidget: (key, factory) => { ui.widget = factory ? key : undefined; component = factory?.(tui, theme); },
@@ -166,7 +166,38 @@ test("disabled config registers nothing", () => {
   assert.deepEqual(handlers, []);
 });
 
-test("widget follows prompts, folds on click, and keeps notes in session entries", async () => {
+test("jump command is a view-only action with a keyboard completion and clear unavailable-state notices", async () => {
+  const h = harness();
+  h.fire("session_start");
+  await h.note("jump");
+  assert.ok(h.notes.some(text => text.includes("当前没有任务行")));
+  h.branch.push(user("u1", "inspect the source prompt"));
+  h.fire("agent_end");
+  const branch = structuredClone(h.branch);
+  const before = h.lines();
+  await h.note("jump");
+  assert.deepEqual(h.branch, branch, "jump never appends a note or navigates the branch");
+  assert.deepEqual(h.lines(), before);
+  assert.ok(h.notes.some(text => text.includes("不支持定位")));
+  assert.deepEqual(h.commands.get("note").getArgumentCompletions("j"), [{ value: "jump", label: "jump" }]);
+  h.fire("session_shutdown");
+});
+
+test("non-TUI modes neither mount the task nor try to jump or edit", async () => {
+  for (const mode of ["rpc", "print", "json"]) {
+    const h = harness(mode);
+    h.branch.push(user("u1", "inspect the source prompt"));
+    h.fire("session_start");
+    await h.note("jump");
+    await h.shortcut();
+    assert.equal(h.ui.widget, undefined);
+    assert.equal(h.ui.editorPrefill, undefined);
+    assert.deepEqual(h.notes, []);
+    assert.equal(h.branch.length, 1);
+  }
+});
+
+test("widget clicks locate prompts instead of expanding, while note editing and manual expansion stay intact", async () => {
   const h = harness();
   assert.ok(h.shortcuts.has("alt+m"));
   h.fire("session_start", { reason: "startup" });
@@ -175,17 +206,22 @@ test("widget follows prompts, folds on click, and keeps notes in session entries
   // Live prompt shows before it is persisted; short follow-ups do not replace it.
   const task = { role: "user", content: "把 telegram 回复路由改成按 session id 匹配，补测试", timestamp: Date.now() };
   h.fire("message_end", { message: task });
-  assert.match(h.lines()[0], /任务 ▸ 把 telegram/);
+  assert.match(h.lines()[0], /任务 ↗ 把 telegram/);
   h.fire("message_end", { message: { role: "user", content: "继续", timestamp: Date.now() } });
   assert.match(h.lines()[0], /把 telegram/);
 
+  const beforeClick = h.lines();
   assert.equal(h.click(0).handled, true);
-  assert.match(h.lines()[0], /任务 ▾/);
-  assert.equal(h.click(5), undefined, "clicks outside the task rows pass through");
-  // Persisting the same prompt keeps the expanded state.
+  assert.deepEqual(h.lines(), beforeClick, "task clicks never expand or fold the preview");
+  assert.ok(h.notes.some(text => text.includes("不支持定位")), "unsupported UI warns instead of pretending to jump");
+  assert.equal(h.click(-1), undefined);
+  assert.equal(h.click(5), undefined, "clicks outside the widget pass through");
   h.branch.push({ type: "message", id: "u1", message: task });
   h.fire("agent_end");
-  assert.match(h.lines()[0], /任务 ▾/);
+  assert.equal(h.lines(30).length, 1);
+  // Manual expansion remains available, but is no longer the task click action.
+  await h.note("task");
+  assert.ok(h.lines(30).length > 1);
 
   // Alt+M opens an empty editor when there is no note; saving appends a custom entry.
   h.ui.editorReply = "等它改完 → 手机上验证\n别合并\n\n";
@@ -220,12 +256,12 @@ test("widget follows prompts, folds on click, and keeps notes in session entries
   release("点击后改的备忘");
   await new Promise(resolve => setImmediate(resolve));
   assert.match(h.lines().at(-1), /备忘   点击后改的备忘$/);
-  assert.match(h.lines()[0], /任务 ▾/, "a note click does not fold the task");
+  assert.ok(h.lines(30).length > 2, "a note click does not fold the task");
   h.ui.editor = undefined;
 
   // /note task is the keyboard path for folding.
   await h.note("task");
-  assert.match(h.lines()[0], /任务 ▸/);
+  assert.equal(h.lines(30).length, 2);
 
   // Pin an older prompt; a newer task does not replace it until unpinned.
   h.branch.push({ type: "message", id: "u2", message: { role: "user", content: "再把 README 里对应的段落全部更新一下", timestamp: Date.now() } });

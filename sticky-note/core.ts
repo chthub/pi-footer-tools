@@ -159,7 +159,7 @@ export interface View {
   expanded: boolean;
 }
 
-const TASK_LABEL = (expanded: boolean) => ` 任务 ${expanded ? "▾" : "▸"} `;
+const TASK_LABEL = " 任务 ↗ ";
 const NOTE_LABEL = " 备忘   ";
 
 function wrap(text: string, width: number): string[] {
@@ -172,7 +172,7 @@ export function renderView(view: View, width: number, style: Style, now = new Da
   const indent = " ".repeat(visibleWidth(NOTE_LABEL));
   const room = Math.max(1, width - visibleWidth(NOTE_LABEL) - 1);
   if (view.anchor) {
-    const label = style.label(TASK_LABEL(view.expanded));
+    const label = style.label(TASK_LABEL);
     let time = formatTime(view.anchor.timestamp, now);
     if (room - visibleWidth(time) - 2 < 12) time = "";
     const textWidth = time ? room - visibleWidth(time) - 2 : room;

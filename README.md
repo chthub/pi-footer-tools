@@ -9,7 +9,7 @@
 - **Context cost comparison**: optional; displays estimated API-equivalent costs for cache reads and cold starts.
 - **Cache diagnostics**: optional; provides status commands and records restricted metadata.
 - **[Telegram notifications/replies](telegram-notify/README.md)**: optional; displays the window's toggle state and supports completion notifications and authorized replies.
-- **Task and note**: optional; pins the latest task-like prompt (folded, click to expand) and your own note above the editor.
+- **Task and note**: optional; pins the latest task-like prompt (click to jump to its source) and your own note above the editor.
 
 Each optional feature has its own configuration switch. All are disabled by default in the repository. Telegram was merged from `pi-telegram-notify` into this repository; only `telegram-notify/` is maintained going forward.
 
@@ -219,12 +219,12 @@ Displayed only in TUI mode. Pi has no theme-change event, so after a theme chang
 Once tool calls scroll by, the prompt that assigned the task quickly leaves the screen. When enabled, two kinds of content stay **above the editor**; no status summary or status symbols are shown:
 
 ```text
- 任务 ▸ 把 telegram-notify 的回复路由改成按 session id 匹配，旧的按 chat id 的逻辑保留做 fa…  14:20
+ 任务 ↗ 把 telegram-notify 的回复路由改成按 session id 匹配，旧的按 chat id 的逻辑保留做 fa…  14:20
  备忘   等它改完 → 手机上发条回复验证
         别合并，先给 A 看
 ```
 
-- **Task (任务)**: the latest user prompt on the current branch that is **not an acknowledgement**; length is not considered. Acknowledgements come from a fixed lexicon only: 继续, 同意, 可以, 确认, 批准, 同意继续, 继续下一步, 继续执行, 继续推进, 继续做, 自行继续推进, 接着, 好, 好的, 行, 嗯, 对, 是的, 没问题, ok, okay, yes, y, go, go ahead, continue, proceed, lgtm. Case, whitespace and punctuation are ignored, and leading "那你/行啊/好的/那/你/行/好/嗯" and trailing "一下/吧/啊/呀/了" are stripped first, so "行，那你继续吧" and "可以了" also count; "你好" does not. Every other prompt (including "提交", "commit and push", "继续t12") becomes the task line; when the branch has only acknowledgements, no task line is shown. `/skill:` invocations show only the command and the text after it; fenced code becomes `[代码 N 行，已省略]`. Folded to one line by default with the send time on the right; **click** the task line to expand the full text, click again to fold; a new task folds again. Clicking needs fullscreen mode (Pi's default); in regular mode the terminal owns the mouse, so use `/note task`.
+- **Task (任务)**: the latest user prompt on the current branch that is **not an acknowledgement**; length is not considered. Acknowledgements come from a fixed lexicon only: 继续, 同意, 可以, 确认, 批准, 同意继续, 继续下一步, 继续执行, 继续推进, 继续做, 自行继续推进, 接着, 好, 好的, 行, 嗯, 对, 是的, 没问题, ok, okay, yes, y, go, go ahead, continue, proceed, lgtm. Case, whitespace and punctuation are ignored, and leading "那你/行啊/好的/那/你/行/好/嗯" and trailing "一下/吧/啊/呀/了" are stripped first, so "行，那你继续吧" and "可以了" also count; "你好" does not. Every other prompt (including "提交", "commit and push", "继续t12") becomes the task line; when the branch has only acknowledgements, no task line is shown. `/skill:` invocations show only the command and the text after it; fenced code becomes `[代码 N 行，已省略]`. Folded to one line by default with the send time on the right; **click** the task line to scroll to the original user prompt corresponding to its current content. A pinned older task jumps to that prompt, not the newest one. Clicking no longer expands/folds. This only scrolls the view: it never changes the session, branch, model context or editor, and never resends messages. Clicking and `/note jump` require fullscreen mode (Pi's default); `/note task` still manually expands/folds the preview in regular mode too.
 - **Note (备忘)**: your own multi-line text, always shown in full, never folded, no line limit; **click** any note line to open the editor.
 
 | Action | How |
@@ -234,9 +234,12 @@ Once tool calls scroll by, the prompt that assigned the task quickly leaves the 
 | Delete the note | `/note clear`, or clear the editor and save |
 | Undo | `/note undo` (repeatable) |
 | Change the task line | `/note pin`: pick one of the latest 12 prompts; the first option "自动" removes the pin and returns to the lexicon rule |
-| Expand/fold the task | Click the task line, or `/note task` |
+| Jump to the source prompt | Click the task line, or `/note jump` (fullscreen) |
+| Expand/fold the task | `/note task` (optional manual preview) |
 
-`clear`, `undo`, `pin` and `task` are reserved subcommands; use the editor for a note that is exactly one of these words.
+`clear`, `undo`, `pin`, `task` and `jump` are reserved subcommands; use the editor for a note that is exactly one of these words.
+
+Navigation is isolated in `sticky-note/navigation.ts`. Pi has no public scroll-to-message interface, so the adapter checks the fullscreen layout, message component structures and displayed prompt sequence against the latest compaction's retained boundary before scrolling; incompatible structures produce a notice rather than a guessed location. Prompts not yet persisted ask you to retry later. Navigation also refuses mismatched displayed/persisted sequences to prevent duplicate text from shifting targets. If compaction removed the original from the displayed transcript, navigation reports that it is unavailable instead of jumping to another identical prompt or changing branches.
 
 Notes and pins are appended as custom session entries (`footer-tools.sticky-note`), **never sent to the model** and never rewritten; `/resume`, reload and fork restore them by replaying the current branch, and `/tree` to an earlier node shows the note as it was there. No network or model requests and no timers; TUI only.
 
@@ -253,6 +256,10 @@ Configuration (off in the repository config; enable it in your personal config):
 `enabled` must be a JSON boolean; with `false` or no `stickyNote` section, no events, commands or shortcuts are registered. Malformed configuration is treated as off with one TUI warning. Run `/reload` after changes.
 
 ## Tests
+
+Task-click navigation update (Pi **1.2.0**): the full `npm test` run passed **190/190** and `npm run typecheck` passed. Focused task/navigation tests passed **24/24**, covering pinned older tasks, duplicate text with different entry IDs, identical cleaned code previews with different sources, skills, pending prompts, compacted-away sources, identical unpersisted messages after compaction, multiple compaction boundaries, resize, native fullscreen mouse dispatch and the forwarding TUI proxy. Navigation preserves branches, editor content and expansion state. A targeted PTY smoke run using the installed bundled Pi also passed: clicking moved the viewport from row 66 to the original prompt at row 13, made its source visible, preserved the unsubmitted draft and branch, and caused no extra model request. It reused a synthetic provider, without remote model access; zero output usage is intentional in that fixture and does not verify speed measurements. The temporary PTY probe is not included in the repository, and the existing full Telegram PTY suites were not rerun.
+
+The records below are historical; click-to-expand was the old behavior and has been replaced by navigation.
 
 Task and note (Pi **1.2.0**): `npm run typecheck` passes and the full `npm test` passes **161/161**, with 8 new tests (acknowledgement lexicon, prompt cleanup, anchor and pin, entry replay, render widths, configuration, lifecycle and commands). A real Pi PTY smoke run with the existing synthetic fixture also passed: folded task line, `Alt+M` multi-line edit, click to expand the task, click the note to edit it, `/note task` and `/note clear`; that smoke script is not part of the repository.
 
